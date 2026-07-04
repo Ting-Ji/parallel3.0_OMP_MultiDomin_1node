@@ -1,0 +1,52 @@
+# Local IDE state
+*.user
+*.suo
+.vs/
+.vscode/
+.claude/
+.agents/
+
+# Build outputs
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Bb]in/
+[Oo]bj/
+*.obj
+*.pdb
+*.ipdb
+*.iobj
+*.ilk
+*.exe
+*.log
+*.tlog
+*.recipe
+*.lastbuildstate
+*.Build.CppClean.log
+*.FileListAbsolute.txt
+
+# DBEM local inputs, outputs, caches, and validation runs
+DBEM1/input/
+DBEM1/output/
+DBEM1/io_check/bin/
+DBEM1/io_check/Release/
+output/
+validation_runs/
+
+# Local MSVC runtime copies; use installed Visual Studio/MSVC instead
+include/
+lib/
+
+# Generated reports and caches
+DBEM1/reports/build/
+__pycache__/
+DBEM1/__pycache__/
+*.pyc
+
+# Runtime captures and scratch files
+/$null
+1
+DBEM1/1
+DBEM1/run_capture*.txt
+*.before_1node_plan

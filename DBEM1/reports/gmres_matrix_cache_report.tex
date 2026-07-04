@@ -1,0 +1,193 @@
+\documentclass[aspectratio=169,UTF8]{ctexbeamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{tikz}
+
+\title{GMRES 影响系数矩阵预存储与多边界工况加速}
+\subtitle{基于 CCSR 缓存与内存会话复用的实现汇报}
+\author{课题组汇报}
+\institute{DBEM 动力边界元程序}
+\date{\today}
+
+\newcommand{\placeholder}[2]{
+  \begin{center}
+    \begin{tikzpicture}
+      \draw[rounded corners=2pt, gray, thick] (0,0) rectangle (#1,#2);
+      \node[align=center, text=gray] at (#1/2,#2/2) {图表占位\\后续由统计结果或绘图脚本填充};
+    \end{tikzpicture}
+  \end{center}
+}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{汇报主线}
+  \begin{enumerate}
+    \item 问题与目标：多边界工况中矩阵重复生成的瓶颈。
+    \item 实现方式：外部文件缓存与内存会话复用的分工。
+    \item 结果与分析：400 个边界数值工况的计时统计。
+    \item 正确性与限制：缓存命中条件、失效规则和当前边界。
+    \item 总结与下一步：从全量复用走向局部更新。
+  \end{enumerate}
+\end{frame}
+
+\section{问题与目标}
+
+\begin{frame}{研究背景：多边界工况中的重复成本}
+  \begin{itemize}
+    \item 动力边界元 GMRES 路径中，影响系数矩阵由几何、材料、时间离散和边界类型决定。
+    \item 当多个工况只改变边界数值时，矩阵结构和数值本身不应重复生成。
+    \item 原始单次计算流程每次都经历矩阵生成、稀疏转换和求解，批量工况下组装成本被重复放大。
+    \item 本阶段目标：在不改变求解数学模型的前提下，复用预计算矩阵，加快多边界数值工况计算。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{核心判断：哪些变化允许复用矩阵}
+  \begin{block}{可以复用}
+    几何、网格、材料参数、时间步设置、边界类型均不变，仅边界条件数值变化。
+  \end{block}
+
+  \begin{block}{必须失效或重建}
+    节点数、单元数、NStep、MaxN、dt、E、$\nu$、$\rho$、gap 或边界类型 bdid/BCID 发生变化。
+  \end{block}
+
+  \begin{alertblock}{当前限制}
+    当前阶段只做全量命中读取或全量重算写入，不做局部矩阵 patch。
+  \end{alertblock}
+\end{frame}
+
+\section{实现方式}
+
+\begin{frame}{技术路线：外存缓存与内存复用的分工}
+  \begin{enumerate}
+    \item 跨程序运行复用：将 GMRES 当前路径中的 CCSR/SymCCSR 矩阵序列化为单个二进制文件。
+    \item 单次运行时，优先从外部文件 \texttt{gmres\_ccsr\_cache.bin} 读取；缓存失效时按原逻辑重算并覆盖缓存。
+    \item 同一程序内批量复用：首个工况准备矩阵后，矩阵常驻内存，后续工况直接使用内存中的矩阵对象。
+    \item 对边界类型进行一致性检查，只允许边界数值变化。
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{外部文件缓存：跨程序运行复用}
+  \begin{itemize}
+    \item 主求解矩阵：\texttt{MTS0}。
+    \item 历史 T 类矩阵：\texttt{MTS[0..MaxN]}。
+    \item 历史 G 类对称矩阵：\texttt{MGS[1..MaxN]}。
+    \item 存储位置：外部二进制文件 \texttt{output/gmres\_ccsr\_cache.bin}。
+    \item 文件头校验：版本、矩阵数量、NodeNum、EleNum、NStep、MaxN、dt、材料参数和 gap。
+    \item 作用范围：程序退出后仍可保留，下一次同参数运行可直接读取。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{内存复用：同一进程内多工况}
+  \begin{itemize}
+    \item 存储位置：程序内存中的矩阵会话，保存 \texttt{MTS0/MTS/MGS}、SpMV 划分和卷积划分。
+    \item 批量模式第一个工况可从外部文件缓存读取，也可完整生成矩阵。
+    \item 后续工况不再读外部文件、不再生成矩阵，直接复用内存会话。
+    \item 当前算例使用 \texttt{BatchBoundaryMode=2} 自动枚举 \texttt{bd\_400} 中的 400 个边界文件。
+  \end{itemize}
+\end{frame}
+
+\section{结果与分析}
+
+\begin{frame}{结果数据来源}
+  \begin{itemize}
+    \item 每个工况输出一个 \texttt{GMRESTime.txt}。
+    \item Python 后处理脚本统一生成 \texttt{output/gmres\_time\_summary.csv}。
+    \item 统计字段包括组装时间、求解时间、GMRES 迭代时间、累计耗时和相对首工况加速比。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{组装时间对比}
+  \placeholder{10.5}{4.8}
+  \vspace{0.2cm}
+  \small
+  建议图：横轴为 case 编号，纵轴为组装时间；突出 case 001 与后续工况的差异。
+\end{frame}
+
+\begin{frame}{求解时间与 GMRES 时间稳定性}
+  \placeholder{10.5}{4.8}
+  \vspace{0.2cm}
+  \small
+  建议图：同时展示 \texttt{solution\_time} 与 \texttt{gmres\_time}，观察边界数值变化对迭代代价的影响。
+\end{frame}
+
+\begin{frame}{400 工况统计表}
+  \begin{table}
+    \centering
+    \begin{tabular}{lccc}
+      \toprule
+      指标 & 首工况 & 后续工况平均 & 全部工况平均 \\
+      \midrule
+      组装时间 & 待填 & 待填 & 待填 \\
+      求解时间 & 待填 & 待填 & 待填 \\
+      GMRES 时间 & 待填 & 待填 & 待填 \\
+      总记录时间 & 待填 & 待填 & 待填 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  \small
+  数据由 \texttt{gmres\_time\_summary.txt} 和 \texttt{gmres\_time\_summary.csv} 填充。
+\end{frame}
+
+\begin{frame}{预期加速机制解释}
+  \begin{itemize}
+    \item 首工况承担矩阵准备成本：文件缓存读取或完整矩阵生成。
+    \item 后续工况只更新边界数值和右端项，矩阵直接从内存会话复用。
+    \item 因此加速主要体现在组装阶段；GMRES 迭代时间仍由具体右端项和收敛性决定。
+    \item 文件缓存解决跨程序运行复用，内存会话解决同一进程内多工况复用。
+  \end{itemize}
+\end{frame}
+
+\section{正确性与限制}
+
+\begin{frame}{正确性保障}
+  \begin{itemize}
+    \item 文件缓存采用严格 header 校验，关键参数不一致时自动失效。
+    \item 批量内存复用检查 bdid/BCID，边界类型变化时停止，避免错误复用。
+    \item 单次文件缓存路径仍保留，关闭批量模式即可回到原单工况预存储矩阵计算。
+    \item 本阶段未改变 GMRES 线性求解、预处理器和结果更新逻辑。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{当前限制}
+  \begin{itemize}
+    \item 当前缓存校验未包含几何坐标、单元连接和边界类型哈希，需由使用者保证输入一致。
+    \item 尚未实现局部几何或局部边界类型变化后的局部矩阵更新。
+    \item 二进制缓存采用 \texttt{fread/fwrite}，尚未使用 memory-mapped file。
+    \item 当前输出只整理计时信息，位移和面力结果输出仍保持原状态。
+  \end{itemize}
+\end{frame}
+
+\section{总结与下一步}
+
+\begin{frame}{阶段总结}
+  \begin{itemize}
+    \item 已实现 GMRES CCSR 影响系数矩阵文件缓存。
+    \item 已实现同一进程内多边界数值工况的内存矩阵复用。
+    \item 已支持 \texttt{grid100.model} 对应的 400 个 \texttt{bd\_400} 边界工况批量运行。
+    \item 已提供计时后处理脚本，可支撑后续性能分析和绘图。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{下一步工作}
+  \begin{enumerate}
+    \item 引入几何、连接关系和边界类型哈希，增强缓存命中安全性。
+    \item 评估 memory-mapped file 对大矩阵读取速度的提升。
+    \item 研究局部几何变化或局部边界类型变化下的矩阵 patch。
+    \item 将位移、面力结果输出纳入批量 case 目录，并配套自动绘图。
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}
+  \centering
+  \Huge 谢谢
+\end{frame}
+
+\end{document}

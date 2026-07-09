@@ -42,8 +42,8 @@ int DSquareElement::InElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
 
@@ -60,7 +60,7 @@ int DSquareElement::InElementIntDynamic()
 
 					for (j = 0; j < 1; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 
 						m_OnElementU1ij[i][j][0] += DU1[0] * temp;
 						m_OnElementU1ij[i][j][1] += DU1[1] * temp;
@@ -121,8 +121,8 @@ int DSquareElement::InElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					Normal(s1, s2, Nor[0], Nor[1], Nor[2]);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
@@ -143,7 +143,7 @@ int DSquareElement::InElementIntDynamic()
 
 					for (j = 0; j < 1; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 						if (i == j)
 						{
 							m_OnElementT1ij[i][j][0] += (DT1[0] - ST[0]) * temp;
@@ -273,8 +273,8 @@ int DSquareElement::PthInElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
 
@@ -291,7 +291,7 @@ int DSquareElement::PthInElementIntDynamic()
 
 					for (j = 0; j < 1; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 
 						m_OnElementU1ij[i][j][0] += DU1[0] * temp;
 						m_OnElementU1ij[i][j][1] += DU1[1] * temp;
@@ -352,8 +352,8 @@ int DSquareElement::PthInElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					Normal(s1, s2, Nor[0], Nor[1], Nor[2]);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
@@ -374,7 +374,7 @@ int DSquareElement::PthInElementIntDynamic()
 
 					for (j = 0; j < 1; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 						if (i == j)
 						{
 							m_OnElementT1ij[i][j][0] += (DT1[0] - ST[0]) * temp;
@@ -823,11 +823,9 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, long T_ID)
 				//GetR(source, m_intptPW[i][j], R, RI);	//计算高斯积分点绝对坐标
 				GetDynaUij(UT, n, dt, R, RI);
 
-				for (PointID = 0; PointID < 8; ++PointID)
-				{
+					PointID = 0;
 					JacobiPW = Jacobi(m_quadinfo.m_LPOSPW[i][j][0], m_quadinfo.m_LPOSPW[i][j][1]);
-					temp = m_quadinfo.m_NPWGV[i][PointID][j] * JacobiPW;
-					//temp = m_quadinfo.m_NPWGV[i][PointID][j] * m_JacobiPW[i][j];  //计算雅可比
+					temp = m_quadinfo.m_PWGV[i][j] * JacobiPW;
 
 					AssistUij[T_ID][PointID][0] += UT[0] * temp;
 					AssistUij[T_ID][PointID][1] += UT[1] * temp;
@@ -835,7 +833,6 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, long T_ID)
 					AssistUij[T_ID][PointID][4] += UT[4] * temp;
 					AssistUij[T_ID][PointID][5] += UT[5] * temp;
 					AssistUij[T_ID][PointID][8] += UT[8] * temp;
-				}
 			}
 		}
 	}
@@ -977,11 +974,9 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, 
 				//GetR(source, m_intptPW[i][j], R, RI);
 				//GetDynaTij(typeT, UT, n, dt, R, RI, m_normalPW[i][j]);  //计算法向量
 
-				for (PointID = 0; PointID < 8; ++PointID)
-				{
+					PointID = 0;
 					JacobiPW = Jacobi(m_quadinfo.m_LPOSPW[i][j][0], m_quadinfo.m_LPOSPW[i][j][1]);
-					temp = m_quadinfo.m_NPWGV[i][PointID][j] * JacobiPW;
-					//temp = m_quadinfo.m_NPWGV[i][PointID][j] * m_JacobiPW[i][j];
+					temp = m_quadinfo.m_PWGV[i][j] * JacobiPW;
 					AssistTij[T_ID][PointID][0] += UT[0] * temp;
 					AssistTij[T_ID][PointID][1] += UT[1] * temp;
 					AssistTij[T_ID][PointID][2] += UT[2] * temp;
@@ -991,7 +986,6 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, 
 					AssistTij[T_ID][PointID][6] += UT[6] * temp;
 					AssistTij[T_ID][PointID][7] += UT[7] * temp;
 					AssistTij[T_ID][PointID][8] += UT[8] * temp;
-				}
 			}
 		}
 	}

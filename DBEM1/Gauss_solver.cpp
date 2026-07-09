@@ -5,6 +5,8 @@
 #include <time.h>
 #include <iostream>
 #include <fstream>
+#include <string>
+#include "output_path.h"
 using namespace std;
 
 int GetMatrixDynaUij(DSquareElement* m_DSE, Wmatrix& A, long NodeNum, long EleNum, double n, double dt)
@@ -1484,7 +1486,8 @@ int StaticGaussSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, lo
 	m_Counter.EndCount();
 	printf_s("\ntime4=%ld\n", clock() - time1);
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -1591,7 +1594,8 @@ int StaticGaussSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, lo
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -1792,7 +1796,8 @@ int DynaGaussSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, long
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -1983,7 +1988,8 @@ int DynaGaussSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, long
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -2151,7 +2157,8 @@ int DynaGaussSolverNew(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, l
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -2321,7 +2328,8 @@ int DynaGaussSolverNew(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, l
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -2639,7 +2647,8 @@ int DynaGaussSolverNew(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, l
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -2852,7 +2861,8 @@ int DynaGaussSolverNewCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else
@@ -3078,7 +3088,8 @@ int DynaGaussSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 	m_Counter.EndCount();
 
 	FILE* pf;
-	fopen_s(&pf, "GaussTime.dat", "w");
+	std::string gaussTimePath = DBEMOutputPath("GaussTime.dat");
+	fopen_s(&pf, gaussTimePath.c_str(), "w");
 	if (InvFlag == 1)
 		fprintf(pf, "高斯求解成功!\n");
 	else

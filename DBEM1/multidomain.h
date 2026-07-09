@@ -143,6 +143,7 @@ public:
 	void Reset(long blockRows, long blockCols);
 	void AddBlock(long rowBlock, long colBlock, double sign, const double block9[9]);
 	void AddRhsBlock(long rowBlock, double sign, const double value3[3]);
+	void MergeFrom(const MultiDomainCCSRBuilder& other);
 	void Build(CCSRMat& out) const;
 	void BuildSym(SymCCSRMat& out, double tolerance, bool* symmetric) const;
 	void BuildRhs(Wvector& out) const;
@@ -201,6 +202,14 @@ int RunMultiDomainMatrixSelfCheck(DSquareElement* elements,
 	long** elePid);
 
 void WriteMultiDomainValidationMetrics(FILE* fp);
+
+int DynaGaussSolverMultiDomainDense(DSquareElement* elements,
+	BoundaryValue* bd,
+	const MultiDomainModel& model,
+	long NStep,
+	double MaxLength,
+	long** infElePid,
+	long** elePid);
 
 int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	BoundaryValue* bd,

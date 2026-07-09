@@ -1,6 +1,7 @@
 ﻿#include "multidomain.h"
 #include "Gauss_solver.h"
 #include "pre_gmres.h"
+#include "output_path.h"
 
 #include <algorithm>
 #include <cmath>
@@ -81,14 +82,15 @@ static int RhsDiagnosticEnabled()
 
 static FILE* OpenDiagnosticCsv(const char* path, const char* header)
 {
+	std::string actualPath = DBEMOutputPath(path);
 	FILE* test = 0;
-	fopen_s(&test, path, "r");
+	fopen_s(&test, actualPath.c_str(), "r");
 	int needsHeader = test ? 0 : 1;
 	if (test)
 		fclose(test);
 
 	FILE* fp = 0;
-	fopen_s(&fp, path, "a");
+	fopen_s(&fp, actualPath.c_str(), "a");
 	if (fp && needsHeader && header)
 		fprintf(fp, "%s\n", header);
 	return fp;
@@ -980,7 +982,8 @@ static int DiagnoseInterfaceDofInvariants(const GlobalDofMap& dofMap, const Mult
 	if (MultiDomainValidationOutputEnabled())
 	{
 		FILE* metrics = 0;
-		fopen_s(&metrics, "output\\validation_metrics.txt", "a");
+		std::string validationMetricsPath = DBEMOutputPath("validation_metrics.txt");
+		fopen_s(&metrics, validationMetricsPath.c_str(), "a");
 		if (metrics)
 		{
 			fprintf(metrics, "MultiDomainInterfaceDofInvariantValid=%d\n", g_validationInterfaceDofInvariantValid);
@@ -2513,7 +2516,8 @@ static int DiagnoseMultiDomainMatrixStructure(const CCSRMat& matrix, const Globa
 	if (MultiDomainValidationOutputEnabled())
 	{
 		FILE* metrics = 0;
-		fopen_s(&metrics, "output\\validation_metrics.txt", "a");
+		std::string validationMetricsPath = DBEMOutputPath("validation_metrics.txt");
+		fopen_s(&metrics, validationMetricsPath.c_str(), "a");
 		if (metrics)
 		{
 			fprintf(metrics, "MultiDomainMatrixStructureValid=%d\n", g_validationMatrixStructureValid);

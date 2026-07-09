@@ -1,5 +1,53 @@
 ﻿#include "quadinfo.h"
 
+namespace
+{
+	double ConstThetaStart(int area)
+	{
+		switch (area)
+		{
+		case 0: return -0.75 * pi;
+		case 1: return -0.25 * pi;
+		case 2: return 0.25 * pi;
+		case 3: return 0.75 * pi;
+		default: return 0.0;
+		}
+	}
+
+	double ConstThetaDiff()
+	{
+		return 0.5 * pi;
+	}
+
+	double ConstThetaFromLocal(double localTheta, int area)
+	{
+		return ConstThetaStart(area) + 0.5 * (localTheta + 1.0) * ConstThetaDiff();
+	}
+
+	double ConstAlphaTheta(double theta, int area)
+	{
+		switch (area)
+		{
+		case 0: return -1.0 / sin(theta);
+		case 1: return 1.0 / cos(theta);
+		case 2: return 1.0 / sin(theta);
+		case 3: return -1.0 / cos(theta);
+		default: return 0.0;
+		}
+	}
+
+	double ConstPolarFromLocal(double localRou, double theta, int area)
+	{
+		return 0.5 * (localRou + 1.0) * ConstAlphaTheta(theta, area);
+	}
+
+	void ConstFromPolar(double& s1, double& s2, double rou, double theta)
+	{
+		s1 = rou * cos(theta);
+		s2 = rou * sin(theta);
+	}
+}
+
 //------------------------------------------------------------------------------
 
 SecInfo::SecInfo()
@@ -46,6 +94,7 @@ int quadinfo::init(double gap)
 		N(res, m_gnm.rp[m][0], m_gnm.rp[m][1]);
 		for (p = 0; p < 8; ++p)
 			m_NRGV[p][m] = res[p] * m_gnm.ra[m];
+		m_RGV[m] = m_gnm.ra[m];
 	}
 
 	// 计算分片参数
@@ -84,6 +133,7 @@ int quadinfo::init(double gap)
 			m_NPWGV[i][5][m] = res[5] * m_gnm.pwra[m] * (LocLength / 2.0) * (LocLength / 2.0);
 			m_NPWGV[i][6][m] = res[6] * m_gnm.pwra[m] * (LocLength / 2.0) * (LocLength / 2.0);
 			m_NPWGV[i][7][m] = res[7] * m_gnm.pwra[m] * (LocLength / 2.0) * (LocLength / 2.0);
+			m_PWGV[i][m] = m_gnm.pwra[m] * (LocLength / 2.0) * (LocLength / 2.0);
 		}
 	}
 
@@ -177,6 +227,20 @@ int quadinfo::AssignSecInfo(SecInfo& m_SecInfo)
 		}
 	}
 
+	for (AreaID = 0; AreaID < 4; ++AreaID)
+	{
+		for (n = 0; n < SINGAUSSPOINT2; ++n)
+		{
+			theta = ConstThetaFromLocal(m_gnm.sp[n][0], AreaID);
+			tempFA = 0.25 * ConstAlphaTheta(theta, AreaID) * ConstThetaDiff();
+			rou = ConstPolarFromLocal(m_gnm.sp[n][1], theta, AreaID);
+			ConstFromPolar(s1, s2, rou, theta);
+			m_SecInfo.m_SecConstPos[AreaID][0][n] = s1;
+			m_SecInfo.m_SecConstPos[AreaID][1][n] = s2;
+			m_SecInfo.m_SecConstVal[AreaID][n] = rou * tempFA * m_gnm.sa[n];
+		}
+	}
+
 	// 计算线上的积分点信息
 	for (ID = 0; ID < 8; ++ID)
 	{
@@ -187,6 +251,14 @@ int quadinfo::AssignSecInfo(SecInfo& m_SecInfo)
 				theta = GetThetaFromLocalTheta(m_gnm.spos[n], ID, AreaID);
 				m_SecInfo.m_LinePos[ID][AreaID][n] = theta;
 			}
+		}
+	}
+
+	for (AreaID = 0; AreaID < 4; ++AreaID)
+	{
+		for (n = 0; n < SINGAUSSPOINT; ++n)
+		{
+			m_SecInfo.m_ConstLinePos[AreaID][n] = ConstThetaFromLocal(m_gnm.spos[n], AreaID);
 		}
 	}
 
@@ -212,6 +284,23 @@ int quadinfo::AssignSecInfo(SecInfo& m_SecInfo)
 					for (i = 0; i < 8; ++i)
 						m_SecInfo.m_SecValPW[ID][i][AreaID][n][m] = NValue[i] * temp;
 				}
+			}
+		}
+	}
+
+	for (AreaID = 0; AreaID < 4; ++AreaID)
+	{
+		for (n = 0; n < SINNUMPW2; ++n)
+		{
+			for (m = 0; m < SINGAUSSPOINTPW2; ++m)
+			{
+				theta = ConstThetaFromLocal(m_SINLPOSPW[n][m][0], AreaID);
+				tempFA = 0.25 * ConstAlphaTheta(theta, AreaID) * ConstThetaDiff();
+				rou = ConstPolarFromLocal(m_SINLPOSPW[n][m][1], theta, AreaID);
+				ConstFromPolar(s1, s2, rou, theta);
+				m_SecInfo.m_SecConstPosPW[AreaID][0][n][m] = s1;
+				m_SecInfo.m_SecConstPosPW[AreaID][1][n][m] = s2;
+				m_SecInfo.m_SecConstValPW[AreaID][n][m] = rou * tempFA * m_SINNPWGV[m];
 			}
 		}
 	}
@@ -243,6 +332,18 @@ int quadinfo::AssignFValue(FValue& m_FValue)
 		}
 	}
 
+	for (AreaID = 0; AreaID < 4; ++AreaID)
+	{
+		for (n = 0; n < SINGAUSSPOINT2; ++n)
+		{
+			theta = ConstThetaFromLocal(m_gnm.sp[n][0], AreaID);
+			tempFA = 0.25 * ConstAlphaTheta(theta, AreaID) * ConstThetaDiff();
+			rou = ConstPolarFromLocal(m_gnm.sp[n][1], theta, AreaID);
+			temp = rou * tempFA * m_gnm.sa[n];
+			m_FValue.m_ConstFMinusOneSecVal[AreaID][n] = temp / rou / rou;
+		}
+	}
+
 	// 计算线上的积分点信息
 	for (ID = 0; ID < 8; ++ID)
 	{
@@ -260,6 +361,17 @@ int quadinfo::AssignFValue(FValue& m_FValue)
 				m_FValue.m_FMinusOneLineVal_2[ID][AreaID][n] = -0.5*m_CornerThetaDiff[ID][AreaID] * m_gnm.sb[n];
 
 			}
+		}
+	}
+
+	for (AreaID = 0; AreaID < 4; ++AreaID)
+	{
+		for (n = 0; n < SINGAUSSPOINT; ++n)
+		{
+			theta = ConstThetaFromLocal(m_gnm.spos[n], AreaID);
+			rou = ConstPolarFromLocal(1.0, theta, AreaID);
+			m_FValue.m_ConstFMinusOneLineVal[AreaID][n] = 0.5 * ConstThetaDiff() * log(rou) * m_gnm.sb[n];
+			m_FValue.m_ConstFMinusOneLineVal_2[AreaID][n] = -0.5 * ConstThetaDiff() * m_gnm.sb[n];
 		}
 	}
 

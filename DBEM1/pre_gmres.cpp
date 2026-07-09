@@ -9,6 +9,7 @@
 #include <direct.h>
 #include "DBEM.h"
 #include "PthreadCCSR.h"
+#include "output_path.h"
 //
 //-------------------------------------------------------------------------------------------------
 
@@ -38,14 +39,15 @@ static int RhsDiagnosticEnabled()
 
 static FILE* OpenDiagnosticCsv(const char* path, const char* header)
 {
+	std::string actualPath = DBEMOutputPath(path);
 	FILE* test = 0;
-	fopen_s(&test, path, "r");
+	fopen_s(&test, actualPath.c_str(), "r");
 	int needsHeader = test ? 0 : 1;
 	if (test)
 		fclose(test);
 
 	FILE* fp = 0;
-	fopen_s(&fp, path, "a");
+	fopen_s(&fp, actualPath.c_str(), "a");
 	if (fp && needsHeader && header)
 		fprintf(fp, "%s\n", header);
 	return fp;

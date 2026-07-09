@@ -16,7 +16,7 @@ int GetNodeInfo(Point* m_pointlist, Point* &m_NodeList, long** m_ElePID, long** 
 // 画网格函数
 int Plot(Point* &m_point, long** &m_ElePID, char* name, long PN, long EN, int flag, double amplitude);
 // 画结果函数
-int ResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, char* fp, double amplitude);
+int ResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, const char* fp, double amplitude);
 // 输出选定节点的位移/面力随时间变化信息
 int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long NodeNum, long NStep, double dt, double dudt, double C_1D, double ColumnLength, long** m_ElePID);
 // 获取单元平均尺寸：根据单元第1、2个几何节点距离平均得到
@@ -24,7 +24,7 @@ double GetEleSize(Point* m_PointList, long** m_ElePID, long PointNum, long EleNu
 // 获取无限大域内圆球表面径向位移
 double GetRadiusDispFromSphere(double rou, double a, double v, double t, double c1);
 // 获取圆球(1,0,0)位置的X方向位移，以代替径向位移
-int TResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, char* fp, double amplitude, long PointID, double& DispR);
+int TResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, const char* fp, double amplitude, long PointID, double& DispR);
 // 获取圆球(1,0,0)位置节点编号
 long GetPoint100ID(Point* m_pointlist, long PointNum);
 // 获取上表面节点的位移/面力随时间变化信息

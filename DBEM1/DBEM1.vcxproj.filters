@@ -69,6 +69,9 @@
     <ClInclude Include="multidomain.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="output_path.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="counter.cpp">
@@ -120,6 +123,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="multidomain.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="output_path.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

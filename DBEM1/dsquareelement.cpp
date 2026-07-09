@@ -2289,8 +2289,8 @@ int DSquareElement::InElementStaticTij()
 		{
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
 			{
-				s1 = m_SecInfo.m_SecPos[i][AreaID][0][j];
-				s2 = m_SecInfo.m_SecPos[i][AreaID][1][j];
+				s1 = m_SecInfo.m_SecConstPos[AreaID][0][j];
+				s2 = m_SecInfo.m_SecConstPos[AreaID][1][j];
 				m_OnEleJ[i][AreaID][j] = Jacobi(s1, s2);
 				Normal(s1, s2, m_OnEleN[i][AreaID][j][0], m_OnEleN[i][AreaID][j][1], m_OnEleN[i][AreaID][j][2]);
 				GetR(m_nodelist[m_nodeID[i]], s1, s2, m_OnEleR[i][AreaID][j]);
@@ -2301,7 +2301,7 @@ int DSquareElement::InElementStaticTij()
 
 	coef1 = -1.0 / (8.0*pi*(1.0 - m_DMat.v));
 	coef2 = 1.0 - 2.0*m_DMat.v;
-	for (i = 0; i < 8; ++i)
+	for (i = 0; i < 1; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
 				m_StaticTij[i][j][k] = 0.0;
@@ -2311,10 +2311,10 @@ int DSquareElement::InElementStaticTij()
 	//variables for assissant of FijMinusOne
 	double m_FijMinusOne[9], A[6], Jh[3], DrDs1[3], DrDs2[3];
 	double Beta;   // 对多个单元共享一个节点的情况要用到
-	for (i = 0; i < 8; ++i)
+	for (i = 0; i < 1; ++i)
 	{
-		s1 = m_quadinfo.m_LocalCoord[i][0];
-		s2 = m_quadinfo.m_LocalCoord[i][1];
+		s1 = 0.0;
+		s2 = 0.0;
 		GetJi0(i, Jh);
 		RDiffs1(s1, s2, DrDs1);
 		RDiffs2(s1, s2, DrDs2);
@@ -2325,7 +2325,7 @@ int DSquareElement::InElementStaticTij()
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
 			{					//Tij
 				GetTij(UT, m_OnEleR[i][AreaID][j], m_OnEleN[i][AreaID][j]);
-				temp = m_SecInfo.m_SecVal[i][i][AreaID][j] * m_OnEleJ[i][AreaID][j];
+				temp = m_SecInfo.m_SecConstVal[AreaID][j] * m_OnEleJ[i][AreaID][j];
 				for (l = 0; l < 9; ++l)
 				{
 					m_StaticTij[i][i][l] += UT[l] * temp;
@@ -2337,7 +2337,7 @@ int DSquareElement::InElementStaticTij()
 		{
 			for (j = 0; j < SINGAUSSPOINT; ++j)
 			{
-				GetAi(m_SecInfo.m_LinePos[i][AreaID][j], DrDs1, DrDs2, A);
+				GetAi(m_SecInfo.m_ConstLinePos[AreaID][j], DrDs1, DrDs2, A);
 
 				GetBeta(Beta, A);
 				Beta = fabs(Beta);
@@ -2345,7 +2345,7 @@ int DSquareElement::InElementStaticTij()
 				GetFijMinusOne(m_FijMinusOne, A, Jh, coef1, coef2);
 				for (l = 0; l < SINGAUSSPOINT; ++l)
 				{
-					FVS1 = m_FValue.m_FMinusOneSecVal[i][AreaID][l * SINGAUSSPOINT + j];  // [l][j] TEST
+					FVS1 = m_FValue.m_ConstFMinusOneSecVal[AreaID][l * SINGAUSSPOINT + j];  // [l][j] TEST
 					m_StaticTij[i][i][0] -= m_FijMinusOne[0] * FVS1;
 					m_StaticTij[i][i][1] -= m_FijMinusOne[1] * FVS1;
 					m_StaticTij[i][i][2] -= m_FijMinusOne[2] * FVS1;
@@ -2358,7 +2358,7 @@ int DSquareElement::InElementStaticTij()
 				}
 
 				// 对单个节点由若干个单元共享的情况，需要用到Beta
-				FVL1 = m_FValue.m_FMinusOneLineVal[i][AreaID][j]; // 连续单元用： + m_FValue.m_FMinusOneLineVal_2[i][AreaID][j]*log(Beta);
+				FVL1 = m_FValue.m_ConstFMinusOneLineVal[AreaID][j]; // 连续单元用： + m_FValue.m_FMinusOneLineVal_2[i][AreaID][j]*log(Beta);
 				m_StaticTij[i][i][0] += m_FijMinusOne[0] * FVL1;
 				m_StaticTij[i][i][1] += m_FijMinusOne[1] * FVL1;
 				m_StaticTij[i][i][2] += m_FijMinusOne[2] * FVL1;
@@ -2394,7 +2394,7 @@ int DSquareElement::InElementStaticTij()
 				{
 					if (i != j)
 					{
-						temp = m_SecInfo.m_SecVal[i][j][AreaID][k] * m_OnEleJ[i][AreaID][k];
+						temp = m_SecInfo.m_SecConstVal[AreaID][k] * m_OnEleJ[i][AreaID][k];
 						m_StaticTij[i][j][0] += UT[0] * temp;
 						m_StaticTij[i][j][1] += UT[1] * temp;
 						m_StaticTij[i][j][2] += UT[2] * temp;
@@ -2444,8 +2444,8 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 		{
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
 			{
-				s1 = m_SecInfo.m_SecPos[i][AreaID][0][j];
-				s2 = m_SecInfo.m_SecPos[i][AreaID][1][j];
+				s1 = m_SecInfo.m_SecConstPos[AreaID][0][j];
+				s2 = m_SecInfo.m_SecConstPos[AreaID][1][j];
 				//m_OnEleJ[i][AreaID][j] = Jacobi(s1, s2);
 				//Normal(s1, s2, m_OnEleN[i][AreaID][j][0], m_OnEleN[i][AreaID][j][1], m_OnEleN[i][AreaID][j][2]);
 				//GetR(m_nodelist[m_nodeID[i]], s1, s2, m_OnEleR[i][AreaID][j]);
@@ -2459,7 +2459,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 
 	coef1 = -1.0 / (8.0 * pi * (1.0 - m_DMat.v));
 	coef2 = 1.0 - 2.0 * m_DMat.v;
-	for (i = 0; i < 8; ++i)
+	for (i = 0; i < 1; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
 				StaticTij[k] = 0.0;//m_StaticTij[i][j][k] = 0.0;
@@ -2469,10 +2469,10 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 	//variables for assissant of FijMinusOne
 	double m_FijMinusOne[9], A[6], Jh[3], DrDs1[3], DrDs2[3];
 	double Beta;   // 对多个单元共享一个节点的情况要用到
-	for (i = 0; i < 8; ++i)
+	for (i = 0; i < 1; ++i)
 	{
-		s1 = m_quadinfo.m_LocalCoord[i][0];
-		s2 = m_quadinfo.m_LocalCoord[i][1];
+		s1 = 0.0;
+		s2 = 0.0;
 		GetJi0(i, Jh);
 		RDiffs1(s1, s2, DrDs1);
 		RDiffs2(s1, s2, DrDs2);
@@ -2483,9 +2483,9 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
 			{					//Tij
 				//GetTij(UT, m_OnEleR[i][AreaID][j], m_OnEleN[i][AreaID][j]);
-				//temp = m_SecInfo.m_SecVal[i][i][AreaID][j] * m_OnEleJ[i][AreaID][j];
+				//temp = m_SecInfo.m_SecConstVal[AreaID][j] * m_OnEleJ[i][AreaID][j];
 				GetTij(UT, OnEleR[AreaID][j], OnEleN[AreaID][j]);
-				temp = m_SecInfo.m_SecVal[i][i][AreaID][j] * OnEleJ[AreaID][j];
+				temp = m_SecInfo.m_SecConstVal[AreaID][j] * OnEleJ[AreaID][j];
 
 				for (l = 0; l < 9; ++l)
 				{
@@ -2499,7 +2499,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 		{
 			for (j = 0; j < SINGAUSSPOINT; ++j)
 			{
-				GetAi(m_SecInfo.m_LinePos[i][AreaID][j], DrDs1, DrDs2, A);
+				GetAi(m_SecInfo.m_ConstLinePos[AreaID][j], DrDs1, DrDs2, A);
 
 				GetBeta(Beta, A);
 				Beta = fabs(Beta);
@@ -2507,7 +2507,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 				GetFijMinusOne(m_FijMinusOne, A, Jh, coef1, coef2);
 				for (l = 0; l < SINGAUSSPOINT; ++l)
 				{
-					FVS1 = m_FValue.m_FMinusOneSecVal[i][AreaID][l * SINGAUSSPOINT + j];  // [l][j] TEST
+					FVS1 = m_FValue.m_ConstFMinusOneSecVal[AreaID][l * SINGAUSSPOINT + j];  // [l][j] TEST
 
 					/*m_StaticTij[i][i][0] -= m_FijMinusOne[0] * FVS1;
 					m_StaticTij[i][i][1] -= m_FijMinusOne[1] * FVS1;
@@ -2530,7 +2530,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 				}
 
 				// 对单个节点由若干个单元共享的情况，需要用到Beta
-				FVL1 = m_FValue.m_FMinusOneLineVal[i][AreaID][j]; // 连续单元用： + m_FValue.m_FMinusOneLineVal_2[i][AreaID][j]*log(Beta);
+				FVL1 = m_FValue.m_ConstFMinusOneLineVal[AreaID][j]; // 连续单元用： + m_FValue.m_FMinusOneLineVal_2[i][AreaID][j]*log(Beta);
 				//m_StaticTij[i][i][0] += m_FijMinusOne[0] * FVL1;
 				//m_StaticTij[i][i][1] += m_FijMinusOne[1] * FVL1;
 				//m_StaticTij[i][i][2] += m_FijMinusOne[2] * FVL1;
@@ -2576,8 +2576,8 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 				{
 					if (i != j)
 					{
-						//temp = m_SecInfo.m_SecVal[i][j][AreaID][k] * m_OnEleJ[i][AreaID][k];
-						temp = m_SecInfo.m_SecVal[i][j][AreaID][k] * OnEleJ[AreaID][k];
+						//temp = m_SecInfo.m_SecConstVal[AreaID][k] * m_OnEleJ[i][AreaID][k];
+						temp = m_SecInfo.m_SecConstVal[AreaID][k] * OnEleJ[AreaID][k];
 						//m_StaticTij[i][j][0] += UT[0] * temp;
 						//m_StaticTij[i][j][1] += UT[1] * temp;
 						//m_StaticTij[i][j][2] += UT[2] * temp;

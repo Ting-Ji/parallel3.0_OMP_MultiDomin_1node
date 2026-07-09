@@ -18,6 +18,7 @@
 
 #include "PthreadCCSR.h"
 #include "multidomain.h"
+#include "output_path.h"
 //#include<iostream>
 
 
@@ -444,10 +445,9 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	if (!ValidationOutputEnabled() || !elements || !pointList || !elePid || !bdValue)
 		return;
 
-	_mkdir("output");
-
 	FILE* state = 0;
-	fopen_s(&state, "output\\validation_state.csv", "w");
+	std::string validationStatePath = DBEMOutputPath("validation_state.csv");
+	fopen_s(&state, validationStatePath.c_str(), "w");
 	if (state)
 	{
 		fprintf(state, "step,element,localNode,nodeId,domain,surfaceType,bcid,x,y,z,ux,uy,uz,tx,ty,tz\n");
@@ -486,14 +486,15 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	}
 	else
 	{
-		printf("Cannot open output\\validation_state.csv for writing.\n");
+		printf("Cannot open %s for writing.\n", validationStatePath.c_str());
 	}
 
 	FILE* metrics = 0;
-	fopen_s(&metrics, "output\\validation_metrics.txt", "w");
+	std::string validationMetricsPath = DBEMOutputPath("validation_metrics.txt");
+	fopen_s(&metrics, validationMetricsPath.c_str(), "w");
 	if (!metrics)
 	{
-		printf("Cannot open output\\validation_metrics.txt for writing.\n");
+		printf("Cannot open %s for writing.\n", validationMetricsPath.c_str());
 		return;
 	}
 
@@ -647,12 +648,37 @@ int main()
 	fscanf_s(input, "%d", &FlagDyna);
 	fscanf_s(input, "%lf", &Beta);
 	fscanf_s(input, "%ld", &NStep);
+	DBEMInitializeOutputDirectory(temptitlename, NStep);
 	fscanf_s(input, "%lf", &gap);
 	fscanf_s(input, "%lf", &E);
 	fscanf_s(input, "%lf", &v);
 	fscanf_s(input, "%lf", &Rou);
 	fscanf_s(input, "%lf", &amplitude);
 	fscanf_s(input, "%d", &solvers);
+	if (solvers == 1)
+	{
+		long legacyPos = ftell(input);
+		long legacyIterations = 0;
+		double legacyError = 0.0;
+		long legacyPremax = 0;
+		int legacyInputMode = 0;
+		int legacyBatchMode = 0;
+		int legacyRead = fscanf_s(input, "%ld", &legacyIterations);
+		legacyRead += fscanf_s(input, "%lf", &legacyError);
+		legacyRead += fscanf_s(input, "%ld", &legacyPremax);
+		legacyRead += fscanf_s(input, "%d", &legacyInputMode);
+		legacyRead += fscanf_s(input, "%d", &legacyBatchMode);
+		if (legacyRead == 5 && legacyIterations > 0 && legacyError > 0.0 && legacyPremax >= 0 &&
+			legacyInputMode >= 0 && legacyInputMode <= 2 && legacyBatchMode >= 0 && legacyBatchMode <= 2)
+		{
+			printf("Gauss solver ignored legacy GMRES parameter block.\n");
+			fprintf_s(logfile, "Gauss solver ignored legacy GMRES parameter block.\n");
+		}
+		else
+		{
+			fseek(input, legacyPos, SEEK_SET);
+		}
+	}
 	if (solvers == 2)
 	{
 		fscanf_s(input, "%ld", &iterations);
@@ -1270,7 +1296,7 @@ int main()
 
 		//tecplot
 		for(i=0;i<=NStep;++i)
-			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,"output\\TecValueFile_realsingle",amplitude);
+			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile_realsingle").c_str(),amplitude);
 
 
 		// ------输出选定节点的位移/面力随时间的变化信息--------
@@ -1320,7 +1346,7 @@ int main()
 
 		//tecplot
 		for(i=0;i<=NStep;++i)
-			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,"output\\TecValueFile",amplitude);
+			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile").c_str(),amplitude);
 
 
 		// ----输出选定节点的位移/面力随时间的变化信息-----
@@ -1563,7 +1589,6 @@ static int DBEMWriteTecplot14WithDisplayDisp(long nodeCount,
 	fprintf(out, "\n");
 
 	DBEMWriteTecplot14Zone(out, "original", nodeCount, eleCount, nodes, elePid, values, centerNodes, centerValues, displayDisp, centerDisplayDisp, 0);
-	printf("amplify=1\n");
 	DBEMWriteTecplot14Zone(out, "deformed", nodeCount, eleCount, nodes, elePid, values, centerNodes, centerValues, displayDisp, centerDisplayDisp, 1);
 
 	for (long ele = 0; ele < eleCount; ++ele)
@@ -1586,13 +1611,13 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 	long PointNum,
 	long NodeNum,
 	long EleNum,
-	char* fp,
+	const char* fp,
 	double amplitude)
 {
 	if (!m_DSE || !m_PointList || !m_ElePID || !bd.lu.b || !bd.lt.b || NodeNum <= 0 || EleNum <= 0)
 		return 0;
 
-	char fpn[100];
+	char fpn[512];
 	sprintf_s(fpn, "%s_%ld.dat", fp, n);
 
 	long displayNodeCount = EleNum * 8;
@@ -1759,17 +1784,17 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 	return 1;
 }
 
-int ResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, char* fp, double amplitude)
+int ResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, const char* fp, double amplitude)
 {
 	(void)bdid;
 	return WriteElementGeometryTecplot14VARS(m_DSE, m_PointList, m_ElePID, bd, n, PointNum, NodeNum, EleNum, fp, amplitude);
 }
 
-int TResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, char* fp, double amplitude, long PointID, double& DispR)
+int TResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long** m_ElePID, int* bdid, BoundaryValue& bd, long n, long PointNum, long NodeNum, long EleNum, const char* fp, double amplitude, long PointID, double& DispR)
 {
 	long i, j, NodeID;
 
-	char fpn[100];
+	char fpn[512];
 	sprintf_s(fpn, "%s_%ld.dat", fp, n);
 
 	//Tecplot arrays
@@ -2312,9 +2337,11 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 	double outputcheck=0.0;
 	double res[8];
 	FILE* fp2;
-	fopen_s(&fp2, "Disp-Trac-Versus-Time-2.dat", "w");
+	std::string dispTracPath2 = DBEMOutputPath("Disp-Trac-Versus-Time-2.dat");
+	fopen_s(&fp2, dispTracPath2.c_str(), "w");
 	FILE* fp;
-	fopen_s(&fp, "Disp-Trac-Versus-Time.dat", "w");
+	std::string dispTracPath = DBEMOutputPath("Disp-Trac-Versus-Time.dat");
+	fopen_s(&fp, dispTracPath.c_str(), "w");
 	for (i = 0; i <= NStep; ++i)
 	{
 		//输出中心点位移
@@ -2938,8 +2965,7 @@ int GetInfoFromPoint_OutPut(OutPoint* OutP, OutEle* OutE, BoundaryValue* bd, lon
 	unsigned found = StrCurrPath.find_last_of("/\\");
 	FileName = StrCurrPath.substr(found + 1);//返回当前文件夹名称
 	Path = StrCurrPath.substr(0, found + 1);//返回上级路径
-	string OutFile = "output\\";
-	string TempPath = Path + OutFile;
+	string TempPath = DBEMOutputDirectory() + "\\";
 	string TempNum;
 	string ForMatTxt = ".dat";//文件后缀    Git test
 	const char* OutPath;

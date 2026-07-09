@@ -62,10 +62,7 @@ int write_tecplot(int num_total_node, int num_ele, int num_node_per_ele, int num
 	AssignBox(m_cube, node_array, num_total_node);
 	max_coord = m_cube.length;
 
-	if (fabs(max_result) > 1.0e-300)
-		amplify = amplitude * max_coord / max_result;
-	amplify = 1;
-	cout << "amplify=" << amplify << endl;
+	//cout << "amplify=" << amplify << endl;
 
 
 	Point * deformed_node_array;

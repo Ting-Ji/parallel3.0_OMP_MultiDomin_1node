@@ -12,12 +12,17 @@ public:
 	double m_SecPos[8][4][2][SINGAUSSPOINT2];
 	// 用于将笛卡尔坐标积分转换到角坐标系下的积分权值（物理量直接和该值相乘再乘以雅克比系数即可得到积分值），8个物理点，8*8
 	double m_SecVal[8][8][4][SINGAUSSPOINT2];
+	double m_SecConstPos[4][2][SINGAUSSPOINT2];
+	double m_SecConstVal[4][SINGAUSSPOINT2];
 	// 用于角坐标系下在线坐标上的积分点，共8个物理点，每个物理点对应4个三角形
 	double m_LinePos[8][4][SINGAUSSPOINT];
+	double m_ConstLinePos[4][SINGAUSSPOINT];
 
 	// 分片定义
 	double m_SecPosPW[8][4][2][SINNUMPW2][SINGAUSSPOINTPW2];
 	double m_SecValPW[8][8][4][SINNUMPW2][SINGAUSSPOINTPW2];
+	double m_SecConstPosPW[4][2][SINNUMPW2][SINGAUSSPOINTPW2];
+	double m_SecConstValPW[4][SINNUMPW2][SINGAUSSPOINTPW2];
 
 	SecInfo();
 	~SecInfo();
@@ -29,10 +34,13 @@ class FValue
 public:
 	//values of 1/rou*f(theta)/2*(theta2-theta1)/2*hij on gauss points of 4 areas(polar coordinates)
 	double m_FMinusOneSecVal[8][4][SINGAUSSPOINT2];
+	double m_ConstFMinusOneSecVal[4][SINGAUSSPOINT2];
 	//gauss values of log(|rou~~(theta)|)*0.5*(theta2-theta1) on four lines
 	double m_FMinusOneLineVal[8][4][SINGAUSSPOINT];
+	double m_ConstFMinusOneLineVal[4][SINGAUSSPOINT];
 	//gauss values of 0.5*(theta2-theta1) on four lines, used for log(beta)
 	double m_FMinusOneLineVal_2[8][4][SINGAUSSPOINT];
+	double m_ConstFMinusOneLineVal_2[4][SINGAUSSPOINT];
 
 	FValue();
 	~FValue();
@@ -49,8 +57,10 @@ public:
 
 	//multiplication of N and Gauss value at Gauss Point
 	double m_NRGV[8][GAUSSPOINT2];               // 用于辅助笛卡尔坐标系下的常规高斯积分
+	double m_RGV[GAUSSPOINT2];                   // Constant one-node element weight, no shape function.
 
 	double m_NPWGV[NUMPW2][8][GAUSSPOINTPW2];    // 用于辅助笛卡尔坐标下下的分片高斯积分
+	double m_PWGV[NUMPW2][GAUSSPOINTPW2];        // Constant one-node element piecewise weight, no shape function.
 	double m_CENPW[NUMPW2][2];                   // 分片中心局部坐标
 	double m_LPOSPW[NUMPW2][GAUSSPOINTPW2][2];   // 分片高斯坐标局部坐标，对应在-1~1的范围的分片值
 

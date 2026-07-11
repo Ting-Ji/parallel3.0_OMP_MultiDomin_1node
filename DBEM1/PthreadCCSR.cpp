@@ -185,12 +185,9 @@ void *PthGetMatrixDynaUnknown0ij(void* arg)
 
 			if (Flag)
 			{
-				for (l = 0; l < 1; ++l)
-				{
-					k = m_DSE[j].m_nodeID[l];
-					// sub = DSquareElement::m_AssistCoef[l];
-					MCCSRtemp.assign(AssistCoef[ID][l], pos, 3 * k, 3, 3);
-				}
+				k = m_DSE[j].m_nodeID[0];
+				// sub = DSquareElement::m_AssistCoef[l];
+				MCCSRtemp.assign(AssistCoef[ID][0], pos, 3 * k, 3, 3);
 			}
 		}
 	}
@@ -234,12 +231,9 @@ void* PthGetMatrixDynaUnknown0ijT0(void* arg)
 
 			if (Flag)
 			{
-				for (l = 0; l < 1; ++l)
-				{
-					k = m_DSE[j].m_nodeID[l];
-					// sub = DSquareElement::m_AssistCoef[l];
-					MT[0].assign(AssistCoef[ID][l], pos+1, 3 * k+1, 3, 3);
-				}
+				k = m_DSE[j].m_nodeID[0];
+				// sub = DSquareElement::m_AssistCoef[l];
+				MT[0].assign(AssistCoef[ID][0], pos+1, 3 * k+1, 3, 3);
 			}
 		}
 	}
@@ -278,12 +272,9 @@ void *PthGetMatrixDynaKnown0ij(void* arg)
 
 			if (Flag)
 			{
-				for (l = 0; l < 1; ++l)
-				{
-					k = m_DSE[j].m_nodeID[l];
-					// sub = DSquareElement::m_AssistCoef[l];
-					MCCSRtemp.assign(AssistCoef[ID][l], pos, 3 * k, 3, 3);
-				}
+				k = m_DSE[j].m_nodeID[0];
+				// sub = DSquareElement::m_AssistCoef[l];
+				MCCSRtemp.assign(AssistCoef[ID][0], pos, 3 * k, 3, 3);
 			}
 		}
 	}
@@ -328,15 +319,12 @@ void *PthGetMatrixDynaT1ij(void* arg)
 
 			if (Flag)
 			{
-				for (l = 0; l < 1; ++l)
-				{
-					k = m_DSE[j].m_nodeID[l];
-					// sub = DSquareElement::m_AssistTij[l];
-					//A.assign(DSquareElement::m_AssistTij[l], pos + 1, 3 * k + 1, 3, 3);
+				k = m_DSE[j].m_nodeID[0];
+				// sub = DSquareElement::m_AssistTij[l];
+				//A.assign(DSquareElement::m_AssistTij[l], pos + 1, 3 * k + 1, 3, 3);
 
-					for (jj = 0; jj < 9; ++jj) {
-						temp[l][jj] += AssistTij[ID][l][jj];
-					}
+				for (jj = 0; jj < 9; ++jj) {
+					temp[0][jj] += AssistTij[ID][0][jj];
 				}
 			}
 
@@ -372,11 +360,8 @@ void *PthGetMatrixDynaT1ij(void* arg)
 			//	}
 			//}
 
-			for (l = 0; l < 1; ++l)
-			{
-				k = m_DSE[j].m_nodeID[l];
-				MCCSRtemp.assign(temp[l], pos, 3 * k, 3, 3);
-			}
+			k = m_DSE[j].m_nodeID[0];
+			MCCSRtemp.assign(temp[0], pos, 3 * k, 3, 3);
 		}
 
 	}
@@ -412,15 +397,12 @@ void* PthGetMatrixDynaT1ijNew(void* arg)
 
 			if (Flag)
 			{
-				for (l = 0; l < 1; ++l)
-				{
-					k = m_DSE[j].m_nodeID[l];
-					// sub = DSquareElement::m_AssistTij[l];
-					//A.assign(DSquareElement::m_AssistTij[l], pos + 1, 3 * k + 1, 3, 3);
+				k = m_DSE[j].m_nodeID[0];
+				// sub = DSquareElement::m_AssistTij[l];
+				//A.assign(DSquareElement::m_AssistTij[l], pos + 1, 3 * k + 1, 3, 3);
 
-					for (jj = 0; jj < 9; ++jj) {
-						temp[l][jj] += AssistTij[ID][l][jj];
-					}
+				for (jj = 0; jj < 9; ++jj) {
+					temp[0][jj] += AssistTij[ID][0][jj];
 				}
 			}
 
@@ -456,11 +438,9 @@ void* PthGetMatrixDynaT1ijNew(void* arg)
 			//	}
 			//}
 
-			for (l = 0; l < 1; ++l)
-			{
-				k = m_DSE[j].m_nodeID[l];
-				MCCSRtemp.assign(temp[l], pos, 3 * k, 3, 3);
-			}
+
+				k = m_DSE[j].m_nodeID[0];
+				MCCSRtemp.assign(temp[0], pos, 3 * k, 3, 3);
 		}
 
 	}
@@ -513,13 +493,10 @@ void *PthGetMatrixDynaT2ij(void* arg)
 
 				if (Flag)
 				{
-					for (l = 0; l < 1; ++l)
-					{
-						k = m_DSE[j].m_nodeID[l];
+						k = m_DSE[j].m_nodeID[0];
 						for (jj = 0; jj < 9; ++jj) {
-							temp[l][jj] += AssistTij[ID][l][jj];
+							temp[0][jj] += AssistTij[ID][0][jj];
 						}
-					}
 				}
 				////���޵�Ԫ����
 				//m_InfEleFlag = m_DSE[j].InfEleFlag;
@@ -550,11 +527,8 @@ void *PthGetMatrixDynaT2ij(void* arg)
 				//	//system("pause");
 				//}
 
-				for (l = 0; l < 1; ++l)
-				{
-					k = m_DSE[j].m_nodeID[l];
-					MCCSRtemp.assign(temp[l], pos, 3 * k, 3, 3);
-				}
+					k = m_DSE[j].m_nodeID[0];
+					MCCSRtemp.assign(temp[0], pos, 3 * k, 3, 3);
 			}
 		}
 	}

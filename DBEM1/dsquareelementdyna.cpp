@@ -56,7 +56,7 @@ int DSquareElement::InElementIntDynamic()
 					RI[2] = SR[2];
 					RI[3] = SR[3];
 
-					GetDynaUij(DU1, 0.0, m_DMat.Dt, R, RI);
+					GetDynaUij(DU1, 0.0, ActiveDynaMat().Dt, R, RI);
 
 					for (j = 0; j < 1; ++j)// recycle for field point
 					{
@@ -136,8 +136,8 @@ int DSquareElement::InElementIntDynamic()
 					RI[2] = SR[2];
 					RI[3] = SR[3];
 
-					GetDynaT1ij(DT1, 0.0, m_DMat.Dt, R, RI, Nor);
-					GetDynaT2ij(DT2, 1.0, m_DMat.Dt, R, RI, Nor);
+					GetDynaT1ij(DT1, 0.0, ActiveDynaMat().Dt, R, RI, Nor);
+					GetDynaT2ij(DT2, 1.0, ActiveDynaMat().Dt, R, RI, Nor);
 
 					GetTij(ST, SR, Nor);
 
@@ -287,7 +287,7 @@ int DSquareElement::PthInElementIntDynamic()
 					RI[2] = SR[2];
 					RI[3] = SR[3];
 
-					GetDynaUij(DU1, 0.0, m_DMat.Dt, R, RI);
+					GetDynaUij(DU1, 0.0, ActiveDynaMat().Dt, R, RI);
 
 					for (j = 0; j < 1; ++j)// recycle for field point
 					{
@@ -367,8 +367,8 @@ int DSquareElement::PthInElementIntDynamic()
 					RI[2] = SR[2];
 					RI[3] = SR[3];
 
-					GetDynaT1ij(DT1, 0.0, m_DMat.Dt, R, RI, Nor);
-					GetDynaT2ij(DT2, 1.0, m_DMat.Dt, R, RI, Nor);
+					GetDynaT1ij(DT1, 0.0, ActiveDynaMat().Dt, R, RI, Nor);
+					GetDynaT2ij(DT2, 1.0, ActiveDynaMat().Dt, R, RI, Nor);
 
 					GetTij(ST, SR, Nor);
 
@@ -625,8 +625,8 @@ int DSquareElement::PthInElementIntStatic(long threadID)
 
 	// 计算Tij的奇异积分：对于强奇异，需要在角坐标系下加一项减一项；对于弱奇异，只需要在角坐标系下积分即可
 
-	coef1 = -1.0 / (8.0 * pi * (1.0 - m_DMat.v));
-	coef2 = 1.0 - 2.0 * m_DMat.v;
+	coef1 = -1.0 / (8.0 * pi * (1.0 - ActiveDynaMat().v));
+	coef2 = 1.0 - 2.0 * ActiveDynaMat().v;
 	for (i = 0; i < 8; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
@@ -1578,9 +1578,9 @@ int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt)
 		return 0;
 
 	if (Flag == 1)
-		IntDynaUijPW(source, n, m_DMat.Dt);
+		IntDynaUijPW(source, n, ActiveDynaMat().Dt);
 	else if (Flag == 2)
-		IntDynaUij(source, n, m_DMat.Dt);
+		IntDynaUij(source, n, ActiveDynaMat().Dt);
 
 	return Flag;
 }
@@ -1593,9 +1593,9 @@ int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt, int ID)
 		return 0;
 
 	if (Flag == 1)
-		IntDynaUijPW(source, n, m_DMat.Dt, ID);
+		IntDynaUijPW(source, n, ActiveDynaMat().Dt, ID);
 	else if (Flag == 2)
-		IntDynaUij(source, n, m_DMat.Dt, ID);
+		IntDynaUij(source, n, ActiveDynaMat().Dt, ID);
 
 	return Flag;
 }
@@ -1608,9 +1608,9 @@ int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt, long T_I
 		return 0;
 
 	if (Flag == 1)
-		IntDynaUijPW(source, n, m_DMat.Dt, T_ID);
+		IntDynaUijPW(source, n, ActiveDynaMat().Dt, T_ID);
 	else if (Flag == 2)
-		IntDynaUij(source, n, m_DMat.Dt, T_ID);
+		IntDynaUij(source, n, ActiveDynaMat().Dt, T_ID);
 
 	return Flag;
 }
@@ -1636,9 +1636,9 @@ int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double d
 		return 0;
 
 	if (Flag == 1)
-		IntDynaTijPW(typeT, source, n, m_DMat.Dt);
+		IntDynaTijPW(typeT, source, n, ActiveDynaMat().Dt);
 	else if (Flag == 2)
-		IntDynaTij(typeT, source, n, m_DMat.Dt);
+		IntDynaTij(typeT, source, n, ActiveDynaMat().Dt);
 
 	return Flag;
 }
@@ -1651,9 +1651,9 @@ int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double d
 		return 0;
 
 	if (Flag == 1)
-		IntDynaTijPW(typeT, source, n, m_DMat.Dt, ID);
+		IntDynaTijPW(typeT, source, n, ActiveDynaMat().Dt, ID);
 	else if (Flag == 2)
-		IntDynaTij(typeT, source, n, m_DMat.Dt, ID);
+		IntDynaTij(typeT, source, n, ActiveDynaMat().Dt, ID);
 
 	return Flag;
 }
@@ -1667,9 +1667,9 @@ int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt)
 		return 0;
 
 	if (Flag1 == 1 || Flag2 == 1)
-		IntDynaTijPW(source, n, m_DMat.Dt);
+		IntDynaTijPW(source, n, ActiveDynaMat().Dt);
 	else
-		IntDynaTij(source, n, m_DMat.Dt);
+		IntDynaTij(source, n, ActiveDynaMat().Dt);
 
 	return (Flag1 || Flag2);
 }
@@ -1682,9 +1682,9 @@ int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double d
 		return 0;
 
 	if (Flag == 1)
-		IntDynaTijPW(typeT, source, n, m_DMat.Dt, T_ID);
+		IntDynaTijPW(typeT, source, n, ActiveDynaMat().Dt, T_ID);
 	else if (Flag == 2)
-		IntDynaTij(typeT, source, n, m_DMat.Dt, T_ID);
+		IntDynaTij(typeT, source, n, ActiveDynaMat().Dt, T_ID);
 
 	return Flag;
 }
@@ -1698,9 +1698,9 @@ int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt, int ID)
 		return 0;
 
 	if (Flag1 == 1 || Flag2 == 1)
-		IntDynaTijPW(source, n, m_DMat.Dt, ID);
+		IntDynaTijPW(source, n, ActiveDynaMat().Dt, ID);
 	else
-		IntDynaTij(source, n, m_DMat.Dt, ID);
+		IntDynaTij(source, n, ActiveDynaMat().Dt, ID);
 
 	return (Flag1 || Flag2);
 }

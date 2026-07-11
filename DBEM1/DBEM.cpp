@@ -1092,16 +1092,17 @@ int main()
 
 	// 单元静态初始化
 	DSquareElement::StaticInit(gap, v, G, Rou, dt, FlagDyna);
-	if (MultiDomain.IsActive())
-		DSquareElement::m_DMat = MultiDomain.materialContext.Get(0);
 	ApplyMultiDomainModelToElements(MultiDomain, m_DSE, EleNum);
 
 	// TEST
-	double dudt = DSquareElement::m_DMat.C1 * sqrt((1.0 + v)*(1.0 - 2.0*v) / (1.0 - v)) / E * dt / dt;
-	double C_1D = DSquareElement::m_DMat.C1 * sqrt((1.0 + v)*(1.0 - 2.0*v) / (1.0 - v));
-	printf("c1: %lf   c2: %lf  c1*dt: %lf\n", DSquareElement::m_DMat.C1, DSquareElement::m_DMat.C2, DSquareElement::m_DMat.C1Dt);
+	const DynaMat& logMat = MultiDomain.IsActive() ? MultiDomain.materialContext.Get(0) : DSquareElement::m_DMat;
+	double logE = MultiDomain.IsActive() ? 2.0 * logMat.G * (1.0 + logMat.v) : E;
+	double logV = logMat.v;
+	double dudt = logMat.C1 * sqrt((1.0 + logV)*(1.0 - 2.0*logV) / (1.0 - logV)) / logE * dt / dt;
+	double C_1D = logMat.C1 * sqrt((1.0 + logV)*(1.0 - 2.0*logV) / (1.0 - logV));
+	printf("c1: %lf   c2: %lf  c1*dt: %lf\n", logMat.C1, logMat.C2, logMat.C1Dt);
 	printf("c: %lf u = %lf\n", C_1D, dudt * dt);
-	fprintf_s(logfile, "c1: %lf   c2: %lf  c1*dt: %lf\n", DSquareElement::m_DMat.C1, DSquareElement::m_DMat.C2, DSquareElement::m_DMat.C1Dt);
+	fprintf_s(logfile, "c1: %lf   c2: %lf  c1*dt: %lf\n", logMat.C1, logMat.C2, logMat.C1Dt);
 	fprintf_s(logfile, "c: %lf u = %lf\n", C_1D, dudt * dt);
 		fflush(stdout); fflush(logfile);
 	// 单元几何初始化
@@ -1140,11 +1141,12 @@ int main()
 	// 单元物理初始化
 	if (MultiDomain.IsActive())
 	{
+		DynaMat savedStaticMat = DSquareElement::m_DMat;
 		for (long p = 0; p < EleNum; ++p) {
 			DSquareElement::m_DMat = MultiDomain.materialContext.Get(m_DSE[p].DomainID);
 			m_DSE[p].PthPhyInit(m_NodeList, m_EleNID[p], bdid[p]);     //计算各单元奇异积分并存储。  减少存储量
 		}
-		DSquareElement::m_DMat = MultiDomain.materialContext.Get(0);
+		DSquareElement::m_DMat = savedStaticMat;
 	}
 	else
 	{
@@ -1296,7 +1298,7 @@ int main()
 
 		//tecplot
 		for(i=0;i<=NStep;++i)
-			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile_realsingle").c_str(),amplitude);
+			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile_1node").c_str(),amplitude);
 
 
 		// ------输出选定节点的位移/面力随时间的变化信息--------

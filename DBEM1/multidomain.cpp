@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <pthread.h>
 
 extern double*** AssistCoef;
 extern double*** AssistUij;
@@ -78,6 +79,52 @@ static int RhsDiagnosticEnabled()
 	if (value)
 		free(value);
 	return enabled;
+}
+
+static int EnvFlagEnabled(const char* name)
+{
+	char* value = 0;
+	size_t valueLen = 0;
+	_dupenv_s(&value, &valueLen, name);
+	int enabled = value && (strcmp(value, "1") == 0 ||
+		strcmp(value, "true") == 0 ||
+		strcmp(value, "TRUE") == 0 ||
+		strcmp(value, "on") == 0 ||
+		strcmp(value, "ON") == 0 ||
+		strcmp(value, "yes") == 0 ||
+		strcmp(value, "YES") == 0);
+	if (value)
+		free(value);
+	return enabled;
+}
+
+static int EnvFlagDisabled(const char* name)
+{
+	char* value = 0;
+	size_t valueLen = 0;
+	_dupenv_s(&value, &valueLen, name);
+	int disabled = value && (strcmp(value, "0") == 0 ||
+		strcmp(value, "false") == 0 ||
+		strcmp(value, "FALSE") == 0 ||
+		strcmp(value, "off") == 0 ||
+		strcmp(value, "OFF") == 0 ||
+		strcmp(value, "no") == 0 ||
+		strcmp(value, "NO") == 0 ||
+		strcmp(value, "serial") == 0 ||
+		strcmp(value, "SERIAL") == 0);
+	if (value)
+		free(value);
+	return disabled;
+}
+
+static int MultiDomainPthreadAssemblyDisabled()
+{
+	return EnvFlagDisabled("DBEM_MULTIDOMAIN_GMRES_PTHREAD");
+}
+
+static int MultiDomainPthreadCheckEnabled()
+{
+	return EnvFlagEnabled("DBEM_MULTIDOMAIN_GMRES_PTHREAD_CHECK");
 }
 
 static FILE* OpenDiagnosticCsv(const char* path, const char* header)
@@ -378,6 +425,58 @@ static int IsZeroBlock9(const double block9[9])
 	return 1;
 }
 
+static double MultiDomainAbsTolerance()
+{
+	return 1.0e-14;
+}
+
+static double MultiDomainRelTolerance()
+{
+	return 1.0e-10;
+}
+
+static double BlockMaxAbs9(const double block9[9])
+{
+	double maxAbs = 0.0;
+	if (!block9)
+		return maxAbs;
+	for (int i = 0; i < 9; ++i)
+	{
+		double value = fabs(block9[i]);
+		if (value > maxAbs)
+			maxAbs = value;
+	}
+	return maxAbs;
+}
+
+static double ArrayBlockMaxAbs9(const std::array<double, 9>& block)
+{
+	double maxAbs = 0.0;
+	for (int i = 0; i < 9; ++i)
+	{
+		double value = fabs(block[(size_t)i]);
+		if (value > maxAbs)
+			maxAbs = value;
+	}
+	return maxAbs;
+}
+
+static int IsNearZeroBlock9(const double block9[9])
+{
+	return BlockMaxAbs9(block9) <= MultiDomainAbsTolerance();
+}
+
+static int IsNearZeroArrayBlock9(const std::array<double, 9>& block)
+{
+	return ArrayBlockMaxAbs9(block) <= MultiDomainAbsTolerance();
+}
+
+static int NearlyEqualByScale(double a, double b, double scale)
+{
+	double threshold = MultiDomainAbsTolerance() + MultiDomainRelTolerance() * scale;
+	return fabs(a - b) <= threshold;
+}
+
 static int IsFiniteBlock9(const double block9[9])
 {
 	for (int i = 0; i < 9; ++i)
@@ -471,7 +570,11 @@ const DynaMat& DomainMaterialContext::Get(int domainId) const
 {
 	if (domainId >= 0 && domainId < (int)mats.size())
 		return mats[domainId];
-	return DSquareElement::m_DMat;
+	printf("MultiDomain material lookup failed: invalid domain id %d.\n", domainId);
+	if (!mats.empty())
+		return mats[0];
+	printf("MultiDomain material lookup failed: material table is empty.\n");
+	abort();
 }
 
 MultiDomainModel::MultiDomainModel()
@@ -1018,7 +1121,7 @@ void MultiDomainCCSRBuilder::AddBlock(long rowBlock, long colBlock, double sign,
 {
 	if (rowBlock < 0 || rowBlock >= m_blockRows || colBlock < 0 || colBlock >= m_blockCols)
 		return;
-	if (!block9 || sign == 0.0 || IsZeroBlock9(block9))
+	if (!block9 || sign == 0.0 || IsZeroBlock9(block9) || IsNearZeroBlock9(block9))
 		return;
 	if (!IsFiniteBlock9(block9))
 	{
@@ -1036,6 +1139,8 @@ void MultiDomainCCSRBuilder::AddBlock(long rowBlock, long colBlock, double sign,
 		for (int c = 0; c < 3; ++c)
 			target[(size_t)(r * 3 + c)] += sign * block9[c * 3 + r];
 	}
+	if (IsNearZeroArrayBlock9(target))
+		m_blocks.erase(key);
 }
 
 void MultiDomainCCSRBuilder::AddRhsBlock(long rowBlock, double sign, const double value3[3])
@@ -1046,6 +1151,27 @@ void MultiDomainCCSRBuilder::AddRhsBlock(long rowBlock, double sign, const doubl
 		return;
 	for (int i = 0; i < 3; ++i)
 		m_rhs[(size_t)rowBlock][(size_t)i] += sign * value3[i];
+}
+
+void MultiDomainCCSRBuilder::MergeFrom(const MultiDomainCCSRBuilder& other)
+{
+	if (other.m_blockRows != m_blockRows || other.m_blockCols != m_blockCols)
+		return;
+	for (std::map<std::pair<long, long>, std::array<double, 9> >::const_iterator it = other.m_blocks.begin();
+		it != other.m_blocks.end();
+		++it)
+	{
+			std::array<double, 9>& target = m_blocks[it->first];
+			for (int k = 0; k < 9; ++k)
+				target[(size_t)k] += it->second[(size_t)k];
+			if (IsNearZeroArrayBlock9(target))
+				m_blocks.erase(it->first);
+		}
+	for (long row = 0; row < m_blockRows; ++row)
+	{
+		for (int c = 0; c < 3; ++c)
+			m_rhs[(size_t)row][(size_t)c] += other.m_rhs[(size_t)row][(size_t)c];
+	}
 }
 
 long MultiDomainCCSRBuilder::NonZeroBlocks() const
@@ -1097,9 +1223,14 @@ void MultiDomainCCSRBuilder::BuildSym(SymCCSRMat& out, double tolerance, bool* s
 		++it)
 	{
 		const std::array<double, 9>& b = it->second;
-		if (fabs(b[1] - b[3]) > tolerance ||
-			fabs(b[2] - b[6]) > tolerance ||
-			fabs(b[5] - b[7]) > tolerance)
+		double scale = ArrayBlockMaxAbs9(b);
+		double threshold = tolerance;
+		double mixedThreshold = MultiDomainAbsTolerance() + MultiDomainRelTolerance() * scale;
+		if (mixedThreshold > threshold)
+			threshold = mixedThreshold;
+		if (fabs(b[1] - b[3]) > threshold ||
+			fabs(b[2] - b[6]) > threshold ||
+			fabs(b[5] - b[7]) > threshold)
 		{
 			localSymmetric = false;
 		}
@@ -1403,16 +1534,15 @@ class ScopedDynaMat {
 public:
 	explicit ScopedDynaMat(const DynaMat& mat)
 	{
-		m_saved = DSquareElement::m_DMat;
-		DSquareElement::m_DMat = mat;
+		m_saved = DSquareElement::SetThreadDynaMat(&mat);
 	}
 	~ScopedDynaMat()
 	{
-		DSquareElement::m_DMat = m_saved;
+		DSquareElement::SetThreadDynaMat(m_saved);
 	}
 
 private:
-	DynaMat m_saved;
+	const DynaMat* m_saved;
 };
 
 class ScopedBCID {
@@ -1432,11 +1562,12 @@ private:
 	int m_saved;
 };
 
-static const DynaMat& GetDomainMatOrDefault(const MultiDomainModel& model, int domainId)
+static const DynaMat* GetDomainMatOrDefault(const MultiDomainModel& model, int domainId)
 {
 	if (domainId >= 0 && domainId < (int)model.domains.size())
-		return model.domains[(size_t)domainId].mat;
-	return DSquareElement::m_DMat;
+		return &model.domains[(size_t)domainId].mat;
+	printf("MultiDomain assembly failed: invalid domain id %d.\n", domainId);
+	return 0;
 }
 
 static void ZeroBlock9(double block9[9])
@@ -1570,7 +1701,10 @@ static int ComputeUnknown0Block(DSquareElement* elements,
 	double block9[9])
 {
 	ZeroBlock9(block9);
-	ScopedDynaMat matScope(GetDomainMatOrDefault(model, domainId));
+	const DynaMat* mat = GetDomainMatOrDefault(model, domainId);
+	if (!mat)
+		return 0;
+	ScopedDynaMat matScope(*mat);
 	long threadId = 0;
 	int flag = UnknownSubMatrix(elements, sourceNode, fieldEle, infElePid, elePid, threadId);
 	if (!flag)
@@ -1590,7 +1724,10 @@ static int ComputeKnown0Block(DSquareElement* elements,
 	double block9[9])
 {
 	ZeroBlock9(block9);
-	ScopedDynaMat matScope(GetDomainMatOrDefault(model, domainId));
+	const DynaMat* mat = GetDomainMatOrDefault(model, domainId);
+	if (!mat)
+		return 0;
+	ScopedDynaMat matScope(*mat);
 	long threadId = 0;
 	int flag = knownSubMatrix(elements, sourceNode, fieldEle, infElePid, elePid, threadId);
 	if (!flag)
@@ -1609,10 +1746,13 @@ static int ComputeT1Block(DSquareElement* elements,
 	double block9[9])
 {
 	ZeroBlock9(block9);
-	ScopedDynaMat matScope(GetDomainMatOrDefault(model, domainId));
+	const DynaMat* mat = GetDomainMatOrDefault(model, domainId);
+	if (!mat)
+		return 0;
+	ScopedDynaMat matScope(*mat);
 	Point& source = elements[fieldEle].m_nodelist[sourceNode];
 	long threadId = 0;
-	int flag = elements[fieldEle].IntDynaTijJudge(1, source, (double)step, DSquareElement::m_DMat.Dt, threadId);
+	int flag = elements[fieldEle].IntDynaTijJudge(1, source, (double)step, DSquareElement::ActiveDynaMat().Dt, threadId);
 	if (!flag)
 		return 0;
 	CopyBlock9(AssistTij[threadId][fieldLocalNode], block9);
@@ -1629,7 +1769,10 @@ static int ComputeT2Block(DSquareElement* elements,
 	double block9[9])
 {
 	ZeroBlock9(block9);
-	ScopedDynaMat matScope(GetDomainMatOrDefault(model, domainId));
+	const DynaMat* mat = GetDomainMatOrDefault(model, domainId);
+	if (!mat)
+		return 0;
+	ScopedDynaMat matScope(*mat);
 	int pos = -1;
 	if (step <= 1 && elements[fieldEle].IsIn(sourceNode, pos))
 	{
@@ -1639,7 +1782,7 @@ static int ComputeT2Block(DSquareElement* elements,
 
 	Point& source = elements[fieldEle].m_nodelist[sourceNode];
 	long threadId = 0;
-	int flag = elements[fieldEle].IntDynaTijJudge(2, source, (double)step, DSquareElement::m_DMat.Dt, threadId);
+	int flag = elements[fieldEle].IntDynaTijJudge(2, source, (double)step, DSquareElement::ActiveDynaMat().Dt, threadId);
 	if (!flag)
 		return 0;
 	CopyBlock9(AssistTij[threadId][fieldLocalNode], block9);
@@ -1656,15 +1799,427 @@ static int ComputeUBlock(DSquareElement* elements,
 	double block9[9])
 {
 	ZeroBlock9(block9);
-	ScopedDynaMat matScope(GetDomainMatOrDefault(model, domainId));
+	const DynaMat* mat = GetDomainMatOrDefault(model, domainId);
+	if (!mat)
+		return 0;
+	ScopedDynaMat matScope(*mat);
 	Point& source = elements[fieldEle].m_nodelist[sourceNode];
 	long threadId = 0;
-	int flag = elements[fieldEle].IntDynaUijJudge(source, (double)step, DSquareElement::m_DMat.Dt, threadId);
+	int flag = elements[fieldEle].IntDynaUijJudge(source, (double)step, DSquareElement::ActiveDynaMat().Dt, threadId);
 	if (!flag)
 		return 0;
 	CopyBlock9(AssistUij[threadId][fieldLocalNode], block9);
 	return 1;
 }
+
+static int ComputeUnknown0BlockCurrentMat(DSquareElement* elements,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long** infElePid,
+	long** elePid,
+	long threadId,
+	double block9[9])
+{
+	ZeroBlock9(block9);
+	int flag = UnknownSubMatrix(elements, sourceNode, fieldEle, infElePid, elePid, threadId);
+	if (!flag)
+		return 0;
+	CopyBlock9(AssistCoef[threadId][fieldLocalNode], block9);
+	return 1;
+}
+
+static int ComputeKnown0BlockCurrentMat(DSquareElement* elements,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long** infElePid,
+	long** elePid,
+	long threadId,
+	double block9[9])
+{
+	ZeroBlock9(block9);
+	int flag = knownSubMatrix(elements, sourceNode, fieldEle, infElePid, elePid, threadId);
+	if (!flag)
+		return 0;
+	CopyBlock9(AssistCoef[threadId][fieldLocalNode], block9);
+	return 1;
+}
+
+static int ComputeT1BlockCurrentMat(DSquareElement* elements,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long step,
+	long threadId,
+	double block9[9])
+{
+	ZeroBlock9(block9);
+	Point& source = elements[fieldEle].m_nodelist[sourceNode];
+	int flag = elements[fieldEle].IntDynaTijJudge(1, source, (double)step, DSquareElement::ActiveDynaMat().Dt, threadId);
+	if (!flag)
+		return 0;
+	CopyBlock9(AssistTij[threadId][fieldLocalNode], block9);
+	return 1;
+}
+
+static int ComputeT2BlockCurrentMat(DSquareElement* elements,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long step,
+	long threadId,
+	double block9[9])
+{
+	ZeroBlock9(block9);
+	int pos = -1;
+	if (step <= 1 && elements[fieldEle].IsIn(sourceNode, pos))
+	{
+		CopyBlock9(elements[fieldEle].m_OnElementT2ij[pos][fieldLocalNode], block9);
+		return 1;
+	}
+
+	Point& source = elements[fieldEle].m_nodelist[sourceNode];
+	int flag = elements[fieldEle].IntDynaTijJudge(2, source, (double)step, DSquareElement::ActiveDynaMat().Dt, threadId);
+	if (!flag)
+		return 0;
+	CopyBlock9(AssistTij[threadId][fieldLocalNode], block9);
+	return 1;
+}
+
+static int ComputeUBlockCurrentMat(DSquareElement* elements,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long step,
+	long threadId,
+	double block9[9])
+{
+	ZeroBlock9(block9);
+	Point& source = elements[fieldEle].m_nodelist[sourceNode];
+	int flag = elements[fieldEle].IntDynaUijJudge(source, (double)step, DSquareElement::ActiveDynaMat().Dt, threadId);
+	if (!flag)
+		return 0;
+	CopyBlock9(AssistUij[threadId][fieldLocalNode], block9);
+	return 1;
+}
+
+static int AddKnownOrUnknownBlockCurrentMat(DSquareElement* elements,
+	const GlobalDofMap& dofMap,
+	long row,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long fieldNode,
+	int domainId,
+	int unknownPass,
+	MultiDomainCCSRBuilder& builder,
+	long** infElePid,
+	long** elePid,
+	long threadId)
+{
+	double block9[9];
+	int flag = unknownPass
+		? ComputeUnknown0BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, threadId, block9)
+		: ComputeKnown0BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, threadId, block9);
+	if (!flag)
+		return 0;
+
+	VariableRef ref;
+	if (elements[fieldEle].BCID == 123)
+		ref = unknownPass ? dofMap.GetT(domainId, fieldNode) : dofMap.GetU(domainId, fieldNode);
+	else
+		ref = unknownPass ? dofMap.GetU(domainId, fieldNode) : dofMap.GetT(domainId, fieldNode);
+
+	if (ref.known == (unknownPass ? false : true))
+		builder.AddBlock(row, ref.globalBlock, ref.sign, block9);
+	return 1;
+}
+
+struct MultiDomainStep0ThreadArg {
+	DSquareElement* elements;
+	const Domain* domain;
+	const GlobalDofMap* dofMap;
+	long** infElePid;
+	long** elePid;
+	MultiDomainCCSRBuilder* unknownBuilder;
+	MultiDomainCCSRBuilder* knownBuilder;
+	long sourceBegin;
+	long sourceEnd;
+	long threadId;
+	long blockCount;
+	int ok;
+};
+
+struct MultiDomainHistoryThreadArg {
+	DSquareElement* elements;
+	const Domain* domain;
+	const GlobalDofMap* dofMap;
+	long step;
+	MultiDomainCCSRBuilder* mtsBuilder;
+	MultiDomainCCSRBuilder* mgsBuilder;
+	long sourceBegin;
+	long sourceEnd;
+	long threadId;
+	long blockCount;
+	int ok;
+};
+
+static void* MultiDomainStep0ThreadMain(void* rawArg)
+{
+	MultiDomainStep0ThreadArg* arg = (MultiDomainStep0ThreadArg*)rawArg;
+	if (!arg)
+		return 0;
+	arg->ok = 1;
+	arg->blockCount = 0;
+	if (!arg || !arg->elements || !arg->domain || !arg->dofMap ||
+		!arg->unknownBuilder || !arg->knownBuilder)
+	{
+		arg->ok = 0;
+		return 0;
+	}
+
+	DSquareElement* elements = arg->elements;
+	const Domain& domain = *arg->domain;
+	ScopedDynaMat matScope(domain.mat);
+	const GlobalDofMap& dofMap = *arg->dofMap;
+	for (long si = arg->sourceBegin; si < arg->sourceEnd; ++si)
+	{
+		long sourceEle = domain.elementIds[(size_t)si];
+		for (int sourceLocalNode = 0; sourceLocalNode < 1; ++sourceLocalNode)
+		{
+			long sourceNode = elements[sourceEle].m_nodeID[sourceLocalNode];
+			long row = dofMap.GetEquationRow(domain.id, sourceNode);
+			if (row < 0)
+				continue;
+
+			for (size_t fj = 0; fj < domain.elementIds.size(); ++fj)
+			{
+				long fieldEle = domain.elementIds[fj];
+				if (elements[fieldEle].SurfaceType == SurfaceInterface)
+					continue;
+				for (int fieldLocalNode = 0; fieldLocalNode < 1; ++fieldLocalNode)
+				{
+					long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+					arg->blockCount += AddKnownOrUnknownBlockCurrentMat(elements, dofMap, row, sourceNode,
+						fieldEle, fieldLocalNode, fieldNode, domain.id, 1,
+						*arg->unknownBuilder, arg->infElePid, arg->elePid, arg->threadId);
+					arg->blockCount += AddKnownOrUnknownBlockCurrentMat(elements, dofMap, row, sourceNode,
+						fieldEle, fieldLocalNode, fieldNode, domain.id, 0,
+						*arg->knownBuilder, arg->infElePid, arg->elePid, arg->threadId);
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+static void* MultiDomainHistoryThreadMain(void* rawArg)
+{
+	MultiDomainHistoryThreadArg* arg = (MultiDomainHistoryThreadArg*)rawArg;
+	if (!arg)
+		return 0;
+	arg->ok = 1;
+	arg->blockCount = 0;
+	if (!arg || !arg->elements || !arg->domain || !arg->dofMap ||
+		!arg->mtsBuilder || !arg->mgsBuilder)
+	{
+		arg->ok = 0;
+		return 0;
+	}
+
+	DSquareElement* elements = arg->elements;
+	const Domain& domain = *arg->domain;
+	ScopedDynaMat matScope(domain.mat);
+	const GlobalDofMap& dofMap = *arg->dofMap;
+	for (long si = arg->sourceBegin; si < arg->sourceEnd; ++si)
+	{
+		long sourceEle = domain.elementIds[(size_t)si];
+		for (int sourceLocalNode = 0; sourceLocalNode < 1; ++sourceLocalNode)
+		{
+			long sourceNode = elements[sourceEle].m_nodeID[sourceLocalNode];
+			long row = dofMap.GetEquationRow(domain.id, sourceNode);
+			if (row < 0)
+				continue;
+
+			for (size_t fj = 0; fj < domain.elementIds.size(); ++fj)
+			{
+				long fieldEle = domain.elementIds[fj];
+				double block9[9];
+				for (int fieldLocalNode = 0; fieldLocalNode < 1; ++fieldLocalNode)
+				{
+					long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+					VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
+					if (ComputeT2BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
+						arg->step, arg->threadId, block9))
+					{
+						arg->mtsBuilder->AddBlock(row, uRef.globalBlock, uRef.sign, block9);
+						++arg->blockCount;
+					}
+					if (ComputeT1BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
+						arg->step, arg->threadId, block9))
+					{
+						arg->mtsBuilder->AddBlock(row, uRef.globalBlock, uRef.sign, block9);
+						++arg->blockCount;
+					}
+
+					VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
+					if (ComputeUBlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
+						arg->step, arg->threadId, block9))
+					{
+						arg->mgsBuilder->AddBlock(row, tRef.globalBlock, tRef.sign, block9);
+						++arg->blockCount;
+					}
+				}
+			}
+		}
+	}
+	return 0;
+}
+
+static long EffectiveMultiDomainThreadCount(const Domain& domain, long requestedThreads)
+{
+	long count = requestedThreads;
+	if (count <= 0)
+		count = thread_num;
+	if (count <= 0)
+		count = 1;
+	if (count > thread_num && thread_num > 0)
+		count = thread_num;
+	long sourceCount = (long)domain.elementIds.size();
+	if (sourceCount > 0 && count > sourceCount)
+		count = sourceCount;
+	if (count < 1)
+		count = 1;
+	return count;
+}
+
+static void SetThreadSourceRange(long sourceCount, long threadId, long threadCount, long& begin, long& end)
+{
+	long size = sourceCount / threadCount;
+	long rest = sourceCount % threadCount;
+	begin = threadId * size + (threadId < rest ? threadId : rest);
+	end = begin + size + (threadId < rest ? 1 : 0);
+}
+
+static int RunPthreadWorkers(pthread_t* threads, int* created, long threadCount)
+{
+	for (long i = 0; i < threadCount; ++i)
+		created[i] = 0;
+	return 1;
+}
+
+static double MaxDenseDifference(const MultiDomainCCSRBuilder& a, const MultiDomainCCSRBuilder& b)
+{
+	if (a.BlockRows() != b.BlockRows() || a.BlockCols() != b.BlockCols())
+		return (std::numeric_limits<double>::max)();
+	std::vector<double> denseA;
+	std::vector<double> denseB;
+	a.BuildDense(denseA);
+	b.BuildDense(denseB);
+	if (denseA.size() != denseB.size())
+		return (std::numeric_limits<double>::max)();
+	double maxDiff = 0.0;
+	for (size_t i = 0; i < denseA.size(); ++i)
+	{
+		double diff = fabs(denseA[i] - denseB[i]);
+		if (diff > maxDiff)
+			maxDiff = diff;
+	}
+	return maxDiff;
+}
+
+static double MaxDenseMagnitude(const MultiDomainCCSRBuilder& a, const MultiDomainCCSRBuilder& b)
+{
+	std::vector<double> denseA;
+	std::vector<double> denseB;
+	a.BuildDense(denseA);
+	b.BuildDense(denseB);
+	double maxAbs = 0.0;
+	for (size_t i = 0; i < denseA.size(); ++i)
+	{
+		double value = fabs(denseA[i]);
+		if (value > maxAbs)
+			maxAbs = value;
+	}
+	for (size_t i = 0; i < denseB.size(); ++i)
+	{
+		double value = fabs(denseB[i]);
+		if (value > maxAbs)
+			maxAbs = value;
+	}
+	return maxAbs;
+}
+
+static double BuilderCompareTolerance(const MultiDomainCCSRBuilder& a, const MultiDomainCCSRBuilder& b)
+{
+	return MultiDomainAbsTolerance() + MultiDomainRelTolerance() * MaxDenseMagnitude(a, b);
+}
+
+static int CompareOrFallbackStep0(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long** infElePid,
+	long** elePid,
+	MultiDomainCCSRBuilder& unknownBuilder,
+	MultiDomainCCSRBuilder& knownBuilder)
+{
+	if (!MultiDomainPthreadCheckEnabled())
+		return 1;
+	MultiDomainCCSRBuilder serialUnknown(dofMap.equationBlockCount, dofMap.unknownBlockCount);
+	MultiDomainCCSRBuilder serialKnown(dofMap.equationBlockCount, dofMap.knownBlockCount);
+	if (!AssembleMultiDomainStep0(elements, model, dofMap, infElePid, elePid, serialUnknown, serialKnown))
+		return 0;
+	double unknownDiff = MaxDenseDifference(unknownBuilder, serialUnknown);
+	double knownDiff = MaxDenseDifference(knownBuilder, serialKnown);
+	double unknownTol = BuilderCompareTolerance(unknownBuilder, serialUnknown);
+	double knownTol = BuilderCompareTolerance(knownBuilder, serialKnown);
+	printf("MultiDomain pthread check Step0: unknownBlocks pthread=%ld serial=%ld maxDiff=%e; knownBlocks pthread=%ld serial=%ld maxDiff=%e\n",
+		unknownBuilder.NonZeroBlocks(), serialUnknown.NonZeroBlocks(), unknownDiff,
+		knownBuilder.NonZeroBlocks(), serialKnown.NonZeroBlocks(), knownDiff);
+	if (unknownBuilder.NonZeroBlocks() != serialUnknown.NonZeroBlocks() ||
+		knownBuilder.NonZeroBlocks() != serialKnown.NonZeroBlocks() ||
+		unknownDiff > unknownTol || knownDiff > knownTol)
+	{
+		printf("MultiDomain pthread Step0 differs from serial assembly; falling back to serial matrices.\n");
+		unknownBuilder = serialUnknown;
+		knownBuilder = serialKnown;
+	}
+	return 1;
+}
+
+static int CompareOrFallbackHistory(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long step,
+	MultiDomainCCSRBuilder& mtsBuilder,
+	MultiDomainCCSRBuilder& mgsBuilder)
+{
+	if (!MultiDomainPthreadCheckEnabled())
+		return 1;
+	MultiDomainCCSRBuilder serialMts(dofMap.equationBlockCount, dofMap.historyUBlockCount);
+	MultiDomainCCSRBuilder serialMgs(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+	if (!AssembleMultiDomainHistoryStep(elements, model, dofMap, step, serialMts, serialMgs))
+		return 0;
+	double mtsDiff = MaxDenseDifference(mtsBuilder, serialMts);
+	double mgsDiff = MaxDenseDifference(mgsBuilder, serialMgs);
+	double mtsTol = BuilderCompareTolerance(mtsBuilder, serialMts);
+	double mgsTol = BuilderCompareTolerance(mgsBuilder, serialMgs);
+	printf("MultiDomain pthread check History step=%ld: MTS pthread=%ld serial=%ld maxDiff=%e; MGS pthread=%ld serial=%ld maxDiff=%e\n",
+		step,
+		mtsBuilder.NonZeroBlocks(), serialMts.NonZeroBlocks(), mtsDiff,
+		mgsBuilder.NonZeroBlocks(), serialMgs.NonZeroBlocks(), mgsDiff);
+	if (mtsBuilder.NonZeroBlocks() != serialMts.NonZeroBlocks() ||
+		mgsBuilder.NonZeroBlocks() != serialMgs.NonZeroBlocks() ||
+		mtsDiff > mtsTol || mgsDiff > mgsTol)
+	{
+		printf("MultiDomain pthread History step=%ld differs from serial assembly; falling back to serial matrices.\n", step);
+		mtsBuilder = serialMts;
+		mgsBuilder = serialMgs;
+	}
+	return 1;
+}
+
 
 static int AddKnownOrUnknownBlock(DSquareElement* elements,
 	const MultiDomainModel& model,
@@ -1821,6 +2376,358 @@ int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 
 	return 1;
 }
+
+static long AssembleMultiDomainStep0InterfaceSerialForDomain(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	const Domain& domain,
+	long** infElePid,
+	long** elePid,
+	MultiDomainCCSRBuilder& unknownBuilder)
+{
+	long interfaceBlocks = 0;
+	for (size_t si = 0; si < domain.elementIds.size(); ++si)
+	{
+		long sourceEle = domain.elementIds[si];
+		for (int sourceLocalNode = 0; sourceLocalNode < 1; ++sourceLocalNode)
+		{
+			long sourceNode = elements[sourceEle].m_nodeID[sourceLocalNode];
+			long row = dofMap.GetEquationRow(domain.id, sourceNode);
+			if (row < 0)
+				continue;
+
+			for (size_t fj = 0; fj < domain.elementIds.size(); ++fj)
+			{
+				long fieldEle = domain.elementIds[fj];
+				if (elements[fieldEle].SurfaceType != SurfaceInterface)
+					continue;
+				int savedBCID = elements[fieldEle].BCID;
+				double block9[9];
+
+				for (int fieldLocalNode = 0; fieldLocalNode < 1; ++fieldLocalNode)
+				{
+					long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+					double transform[9];
+					GetElementLocalTransformFromInterfaceReference(model, domain.id, fieldEle, fieldLocalNode, transform);
+					{
+						ScopedBCID bcidScope(elements[fieldEle], 456);
+						if (ComputeUnknown0Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, block9))
+						{
+							VariableRef uRef = dofMap.GetU(domain.id, fieldNode);
+							AddBlockWithTransform(unknownBuilder, row, uRef, transform, block9);
+							++interfaceBlocks;
+						}
+					}
+
+					{
+						ScopedBCID bcidScope(elements[fieldEle], 123);
+						if (ComputeUnknown0Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, block9))
+						{
+							VariableRef tRef = dofMap.GetT(domain.id, fieldNode);
+							AddBlockWithTransform(unknownBuilder, row, tRef, transform, block9);
+							++interfaceBlocks;
+						}
+					}
+				}
+
+				elements[fieldEle].BCID = savedBCID;
+			}
+		}
+	}
+	return interfaceBlocks;
+}
+
+static int AssembleMultiDomainStep0DomainPthread(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	const Domain& domain,
+	long requestedThreads,
+	long** infElePid,
+	long** elePid,
+	MultiDomainCCSRBuilder& unknownBuilder,
+	MultiDomainCCSRBuilder& knownBuilder,
+	long& interfaceBlocks)
+{
+	interfaceBlocks = 0;
+	long sourceCount = (long)domain.elementIds.size();
+	if (sourceCount <= 0)
+		return 1;
+
+	long localThreadCount = EffectiveMultiDomainThreadCount(domain, requestedThreads);
+	clock_t domainClock = clock();
+
+	if (localThreadCount <= 1)
+	{
+		MultiDomainStep0ThreadArg arg;
+		arg.elements = elements;
+		arg.domain = &domain;
+		arg.dofMap = &dofMap;
+		arg.infElePid = infElePid;
+		arg.elePid = elePid;
+		arg.unknownBuilder = &unknownBuilder;
+		arg.knownBuilder = &knownBuilder;
+		arg.sourceBegin = 0;
+		arg.sourceEnd = sourceCount;
+		arg.threadId = 0;
+		arg.blockCount = 0;
+		arg.ok = 1;
+			MultiDomainStep0ThreadMain(&arg);
+			interfaceBlocks = AssembleMultiDomainStep0InterfaceSerialForDomain(elements, model, dofMap,
+				domain, infElePid, elePid, unknownBuilder);
+			printf("MultiDomain Step0 pthread assembly domain=%d threads=1 nonInterfaceBlocks=%ld interfaceSerialBlocks=%ld time=%lf\n",
+			domain.id, arg.blockCount, interfaceBlocks,
+			(double)(clock() - domainClock) / (double)CLOCKS_PER_SEC);
+		return arg.ok;
+	}
+
+	pthread_t* threads = new pthread_t[(size_t)localThreadCount];
+	int* created = new int[(size_t)localThreadCount];
+	MultiDomainStep0ThreadArg* args = new MultiDomainStep0ThreadArg[(size_t)localThreadCount];
+	MultiDomainCCSRBuilder* localUnknown = new MultiDomainCCSRBuilder[(size_t)localThreadCount];
+	MultiDomainCCSRBuilder* localKnown = new MultiDomainCCSRBuilder[(size_t)localThreadCount];
+	RunPthreadWorkers(threads, created, localThreadCount);
+
+	int createOk = 1;
+	long createSuccess = 0;
+	for (long t = 0; t < localThreadCount; ++t)
+	{
+		long begin = 0;
+		long end = 0;
+		SetThreadSourceRange(sourceCount, t, localThreadCount, begin, end);
+		localUnknown[t].Reset(dofMap.equationBlockCount, dofMap.unknownBlockCount);
+		localKnown[t].Reset(dofMap.equationBlockCount, dofMap.knownBlockCount);
+		args[t].elements = elements;
+		args[t].domain = &domain;
+		args[t].dofMap = &dofMap;
+		args[t].infElePid = infElePid;
+		args[t].elePid = elePid;
+		args[t].unknownBuilder = &localUnknown[t];
+		args[t].knownBuilder = &localKnown[t];
+		args[t].sourceBegin = begin;
+		args[t].sourceEnd = end;
+		args[t].threadId = t;
+		args[t].blockCount = 0;
+		args[t].ok = 1;
+		int code = pthread_create(&threads[t], 0, MultiDomainStep0ThreadMain, &args[t]);
+		if (code == 0)
+		{
+			created[t] = 1;
+			++createSuccess;
+		}
+		else
+		{
+			printf("MultiDomain Step0 pthread_create failed domain=%d thread=%ld code=%d\n", domain.id, t, code);
+			createOk = 0;
+			break;
+		}
+	}
+
+	for (long t = 0; t < localThreadCount; ++t)
+	{
+		if (created[t])
+			pthread_join(threads[t], 0);
+	}
+
+	long nonInterfaceBlocks = 0;
+	int workerOk = createOk && (createSuccess == localThreadCount);
+	if (workerOk)
+	{
+		for (long t = 0; t < localThreadCount; ++t)
+		{
+			if (!args[t].ok)
+				workerOk = 0;
+			nonInterfaceBlocks += args[t].blockCount;
+			unknownBuilder.MergeFrom(localUnknown[t]);
+			knownBuilder.MergeFrom(localKnown[t]);
+		}
+	}
+
+	delete[] localKnown;
+	delete[] localUnknown;
+	delete[] args;
+	delete[] created;
+	delete[] threads;
+
+		if (workerOk)
+			interfaceBlocks = AssembleMultiDomainStep0InterfaceSerialForDomain(elements, model, dofMap,
+				domain, infElePid, elePid, unknownBuilder);
+
+		printf("MultiDomain Step0 pthread assembly domain=%d threads=%ld created=%ld nonInterfaceBlocks=%ld interfaceSerialBlocks=%ld time=%lf\n",
+		domain.id, localThreadCount, createSuccess, nonInterfaceBlocks, interfaceBlocks,
+		(double)(clock() - domainClock) / (double)CLOCKS_PER_SEC);
+	return workerOk;
+}
+
+static int AssembleMultiDomainHistoryDomainPthread(DSquareElement* elements,
+	const GlobalDofMap& dofMap,
+	const Domain& domain,
+	long step,
+	long requestedThreads,
+	MultiDomainCCSRBuilder& mtsBuilder,
+	MultiDomainCCSRBuilder& mgsBuilder)
+{
+	long sourceCount = (long)domain.elementIds.size();
+	if (sourceCount <= 0)
+		return 1;
+
+	long localThreadCount = EffectiveMultiDomainThreadCount(domain, requestedThreads);
+	clock_t domainClock = clock();
+
+	if (localThreadCount <= 1)
+	{
+		MultiDomainHistoryThreadArg arg;
+		arg.elements = elements;
+		arg.domain = &domain;
+		arg.dofMap = &dofMap;
+		arg.step = step;
+		arg.mtsBuilder = &mtsBuilder;
+		arg.mgsBuilder = &mgsBuilder;
+		arg.sourceBegin = 0;
+		arg.sourceEnd = sourceCount;
+		arg.threadId = 0;
+			arg.blockCount = 0;
+			arg.ok = 1;
+			MultiDomainHistoryThreadMain(&arg);
+			return arg.ok;
+	}
+
+	pthread_t* threads = new pthread_t[(size_t)localThreadCount];
+	int* created = new int[(size_t)localThreadCount];
+	MultiDomainHistoryThreadArg* args = new MultiDomainHistoryThreadArg[(size_t)localThreadCount];
+	MultiDomainCCSRBuilder* localMts = new MultiDomainCCSRBuilder[(size_t)localThreadCount];
+	MultiDomainCCSRBuilder* localMgs = new MultiDomainCCSRBuilder[(size_t)localThreadCount];
+	RunPthreadWorkers(threads, created, localThreadCount);
+
+	int createOk = 1;
+	long createSuccess = 0;
+	for (long t = 0; t < localThreadCount; ++t)
+	{
+		long begin = 0;
+		long end = 0;
+		SetThreadSourceRange(sourceCount, t, localThreadCount, begin, end);
+		localMts[t].Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount);
+		localMgs[t].Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+		args[t].elements = elements;
+		args[t].domain = &domain;
+		args[t].dofMap = &dofMap;
+		args[t].step = step;
+		args[t].mtsBuilder = &localMts[t];
+		args[t].mgsBuilder = &localMgs[t];
+		args[t].sourceBegin = begin;
+		args[t].sourceEnd = end;
+		args[t].threadId = t;
+		args[t].blockCount = 0;
+		args[t].ok = 1;
+		int code = pthread_create(&threads[t], 0, MultiDomainHistoryThreadMain, &args[t]);
+		if (code == 0)
+		{
+			created[t] = 1;
+			++createSuccess;
+		}
+		else
+		{
+			printf("MultiDomain History pthread_create failed step=%ld domain=%d thread=%ld code=%d\n",
+				step, domain.id, t, code);
+			createOk = 0;
+			break;
+		}
+	}
+
+	for (long t = 0; t < localThreadCount; ++t)
+	{
+		if (created[t])
+			pthread_join(threads[t], 0);
+	}
+
+	long blockCount = 0;
+	int workerOk = createOk && (createSuccess == localThreadCount);
+	if (workerOk)
+	{
+		for (long t = 0; t < localThreadCount; ++t)
+		{
+			if (!args[t].ok)
+				workerOk = 0;
+			blockCount += args[t].blockCount;
+			mtsBuilder.MergeFrom(localMts[t]);
+			mgsBuilder.MergeFrom(localMgs[t]);
+		}
+	}
+
+	delete[] localMgs;
+	delete[] localMts;
+	delete[] args;
+	delete[] created;
+	delete[] threads;
+
+		return workerOk;
+	}
+
+static int AssembleMultiDomainStep0Pthread(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long** infElePid,
+	long** elePid,
+	MultiDomainCCSRBuilder& unknownBuilder,
+	MultiDomainCCSRBuilder& knownBuilder,
+	long requestedThreads)
+{
+	if (!elements || !model.Validate() || !dofMap.Validate())
+		return 0;
+	if (requestedThreads <= 1 || MultiDomainPthreadAssemblyDisabled())
+		return AssembleMultiDomainStep0(elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder);
+
+	unknownBuilder.Reset(dofMap.equationBlockCount, dofMap.unknownBlockCount);
+	knownBuilder.Reset(dofMap.equationBlockCount, dofMap.knownBlockCount);
+	printf("MultiDomain GMRES pthread assembly enabled: requestedThreads=%ld domains=%d\n",
+		requestedThreads, model.DomainCount());
+
+	for (size_t d = 0; d < model.domains.size(); ++d)
+	{
+		const Domain& domain = model.domains[d];
+		printf("MultiDomain GMRES material domain=%d C1=%lf C2=%lf C1Dt=%lf C2Dt=%lf elements=%ld\n",
+			domain.id, domain.mat.C1, domain.mat.C2, domain.mat.C1Dt, domain.mat.C2Dt,
+			(long)domain.elementIds.size());
+		long interfaceBlocks = 0;
+		if (!AssembleMultiDomainStep0DomainPthread(elements, model, dofMap, domain, requestedThreads,
+			infElePid, elePid, unknownBuilder, knownBuilder, interfaceBlocks))
+		{
+			printf("MultiDomain Step0 pthread assembly failed; falling back to serial multi-domain assembly.\n");
+			return AssembleMultiDomainStep0(elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder);
+		}
+	}
+
+	return CompareOrFallbackStep0(elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder);
+}
+
+static int AssembleMultiDomainHistoryStepPthread(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long step,
+	MultiDomainCCSRBuilder& mtsBuilder,
+	MultiDomainCCSRBuilder& mgsBuilder,
+	long requestedThreads)
+{
+	if (!elements || step <= 0 || !model.Validate() || !dofMap.Validate())
+		return 0;
+	if (requestedThreads <= 1 || MultiDomainPthreadAssemblyDisabled())
+		return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
+
+	mtsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount);
+	mgsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+	for (size_t d = 0; d < model.domains.size(); ++d)
+	{
+		const Domain& domain = model.domains[d];
+		if (!AssembleMultiDomainHistoryDomainPthread(elements, dofMap, domain, step, requestedThreads,
+			mtsBuilder, mgsBuilder))
+		{
+			printf("MultiDomain History pthread assembly failed at step=%ld; falling back to serial multi-domain assembly.\n", step);
+			return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
+		}
+	}
+
+	return CompareOrFallbackHistory(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
+}
+
 static void FillDeterministicVector(Wvector& x)
 {
 	for (long i = 0; i < x.n; ++i)
@@ -2039,7 +2946,12 @@ int RunMultiDomainMatrixSelfCheck(DSquareElement* elements,
 		return 1;
 
 	long blockCount = model.nodeCount;
-	double dt = DSquareElement::m_DMat.Dt;
+	if (model.domains.empty())
+	{
+		printf("MultiDomain matrix self-check failed: no domain materials.\n");
+		return 0;
+	}
+	double dt = model.domains[0].mat.Dt;
 	int ok = 1;
 
 	MultiDomainCCSRBuilder unknownBuilder(dofMap.equationBlockCount, dofMap.unknownBlockCount);
@@ -2819,7 +3731,10 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 			minC2Dt = model.domains[d].mat.C2Dt;
 	}
 	if (minC2Dt == (std::numeric_limits<double>::max)())
-		minC2Dt = DSquareElement::m_DMat.C2Dt;
+	{
+		printf("MultiDomain MaxN failed: no valid domain C2Dt.\n");
+		return -1;
+	}
 	for (long i = 0; i <= NStep; ++i)
 	{
 		if (minC2Dt * i > MaxLength)
@@ -2835,7 +3750,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	MultiDomainCCSRBuilder unknownBuilder(dofMap.equationBlockCount, dofMap.unknownBlockCount);
 	MultiDomainCCSRBuilder knownBuilder(dofMap.equationBlockCount, dofMap.knownBlockCount);
 	clock_t matrixClock = clock();
-	if (!AssembleMultiDomainStep0(elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder))
+	if (!AssembleMultiDomainStep0Pthread(elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder, thread_num))
 		return -1;
 
 	printf("MultiDomain MTS0 blocks = %ld\n", unknownBuilder.NonZeroBlocks());
@@ -2864,7 +3779,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	{
 		MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount);
 		MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount);
-		if (!AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder))
+		if (!AssembleMultiDomainHistoryStepPthread(elements, model, dofMap, step, mtsBuilder, mgsBuilder, thread_num))
 		{
 			delete[] MTS;
 			delete[] MGS;

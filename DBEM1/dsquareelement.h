@@ -243,7 +243,10 @@ public:
 	static int* BeElePos;              // 节点所属的单元中节点在单元的编号
 	static double** m_transmat;         // 节点局部坐标转换矩阵，从局部坐标到整体坐标转换
 
-	static DynaMat m_DMat;
+		static DynaMat m_DMat;
+		static thread_local const DynaMat* m_ThreadDMat;
+		static const DynaMat& ActiveDynaMat();
+		static const DynaMat* SetThreadDynaMat(const DynaMat* mat);
 	
 	static double InfCenter[3];//无限单元中心
 	static int FlagDynaMethod;//是否进行稳定性处理 1否2是
@@ -655,7 +658,7 @@ public:
 		// Aij = 1 / c1^2 * ri * rj / r^3
 
 		double C1;
-		C1 = m_DMat.OneOverC1_2 / R[3];
+		C1 = ActiveDynaMat().OneOverC1_2 / R[3];
 
 		aij[0] = C1 * RIRJ[0]; // RI[1] * RI[1];
 		aij[1] = C1 * RIRJ[1]; // RI[2] * RI[1];
@@ -683,15 +686,15 @@ public:
 
 		// Bij = 1 / c2^2 * (deltaij / r - ri * rj / r^3)
 
-		bij[0] = m_DMat.OneOverC2_2 * (1.0 / R[1] - RIRJ[0] / R[3]);
-		bij[1] = m_DMat.OneOverC2_2 * (- RIRJ[1] / R[3]);
-		bij[2] = m_DMat.OneOverC2_2 * (- RIRJ[2] / R[3]);
+		bij[0] = ActiveDynaMat().OneOverC2_2 * (1.0 / R[1] - RIRJ[0] / R[3]);
+		bij[1] = ActiveDynaMat().OneOverC2_2 * (- RIRJ[1] / R[3]);
+		bij[2] = ActiveDynaMat().OneOverC2_2 * (- RIRJ[2] / R[3]);
 		bij[3] = bij[1];
-		bij[4] = m_DMat.OneOverC2_2 * (1.0 / R[1] - RIRJ[3] / R[3]);
-		bij[5] = m_DMat.OneOverC2_2 * (- RIRJ[4] / R[3]);
+		bij[4] = ActiveDynaMat().OneOverC2_2 * (1.0 / R[1] - RIRJ[3] / R[3]);
+		bij[5] = ActiveDynaMat().OneOverC2_2 * (- RIRJ[4] / R[3]);
 		bij[6] = bij[2];
 		bij[7] = bij[5];
-		bij[8] = m_DMat.OneOverC2_2 * (1.0 / R[1] - RIRJ[5] / R[3]);
+		bij[8] = ActiveDynaMat().OneOverC2_2 * (1.0 / R[1] - RIRJ[5] / R[3]);
 
 		return 1;
 	}
@@ -743,9 +746,9 @@ public:
 		double C1,C2,C3,RmNm;
 		
 		RmNm = RI[1] * Nor[0] + RI[2] * Nor[1] + RI[3] * Nor[2];
-		C1 = (4.0 * m_DMat.C2_2OverC1_2 - 1.0) / R[3];
-		C2 = m_DMat.C2_2OverC1_2 * 12.0 * RmNm / R[5];
-		C3 = m_DMat.C2_2OverC1_2 * 2.0 / R[3];
+		C1 = (4.0 * ActiveDynaMat().C2_2OverC1_2 - 1.0) / R[3];
+		C2 = ActiveDynaMat().C2_2OverC1_2 * 12.0 * RmNm / R[5];
+		C3 = ActiveDynaMat().C2_2OverC1_2 * 2.0 / R[3];
 
 		dij[0] = C1 * RI[1] * Nor[0] - (C2 * RIRJ[0] - C3 * (RI[1] * Nor[0] + RmNm));
 		dij[1] = C1 * RI[2] * Nor[0] - (C2 * RIRJ[1] - C3 * (RI[1] * Nor[1]));
@@ -809,7 +812,7 @@ public:
 		double C1,C2,RmNm;
 		
 		RmNm = RI[1] * Nor[0] + RI[2] * Nor[1] + RI[3] * Nor[2];
-		C1 = - 6.0 * m_DMat.C2_2;
+		C1 = - 6.0 * ActiveDynaMat().C2_2;
 		C2 = 5.0 * RmNm / R[5];
 
 		fij[0] = C1 * (C2 * RIRJ[0] - (RI[1] * Nor[0] + RI[1] * Nor[0] + RmNm) / R[3]);
@@ -841,8 +844,8 @@ public:
 		double C1,C2,RmNm;
 		
 		RmNm = RI[1] * Nor[0] + RI[2] * Nor[1] + RI[3] * Nor[2];
-		C1 = - 2.0 * m_DMat.C2_2OverC1_3 * RmNm / R[4];
-		C2 = 1.0 / m_DMat.C1 * (2.0 * m_DMat.C2_2OverC1_2 - 1.0) / R[2];
+		C1 = - 2.0 * ActiveDynaMat().C2_2OverC1_3 * RmNm / R[4];
+		C2 = 1.0 / ActiveDynaMat().C1 * (2.0 * ActiveDynaMat().C2_2OverC1_2 - 1.0) / R[2];
 
 		gij[0] = C1 * RIRJ[0] + C2 * RI[1] * Nor[0];
 		gij[1] = C1 * RIRJ[1] + C2 * RI[2] * Nor[0];
@@ -873,8 +876,8 @@ public:
 		double C1,C2,RmNm;
 		
 		RmNm = RI[1] * Nor[0] + RI[2] * Nor[1] + RI[3] * Nor[2];
-		C1 = 2.0 / m_DMat.C2 * RmNm / R[4];
-		C2 = - 1.0 / m_DMat.C2 / R[2];
+		C1 = 2.0 / ActiveDynaMat().C2 * RmNm / R[4];
+		C2 = - 1.0 / ActiveDynaMat().C2 / R[2];
 
 		hij[0] = C1 * RIRJ[0] + C2 * (RI[1] * Nor[0] + RmNm);
 		hij[1] = C1 * RIRJ[1] + C2 * RI[1] * Nor[1];
@@ -912,12 +915,13 @@ public:
 	// 判断是否需要计算
 	int NeedCal(int type,double n,Point& o_Point);
 
-	int PointNeedCal(int type,double n,Point& s_Point,Point& o_Point)
-	{
-		double nn = (type == 2 ? n - 1 : n);
-		double r = Dist(s_Point,o_Point);
-		return (r >= nn * m_DMat.C2Dt && r < (nn + 1) * m_DMat.C1Dt) ? 1 : 0;
-	}
+		int PointNeedCal(int type,double n,Point& s_Point,Point& o_Point)
+		{
+			const DynaMat& mat = ActiveDynaMat();
+			double nn = (type == 2 ? n - 1 : n);
+			double r = Dist(s_Point,o_Point);
+			return (r >= nn * mat.C2Dt && r < (nn + 1) * mat.C1Dt) ? 1 : 0;
+		}
 
 	int PWNeedCal(int type,double n,Point& PW_center,Point& o_Point)
 	{
@@ -925,10 +929,11 @@ public:
 	// 0: 没有收到波动影响，不参与计算
 	// 1: 收到波动影响，调用PW计算
 	
-		double nn = (type == 2 ? n - 1 : n);
+			double nn = (type == 2 ? n - 1 : n);
+			const DynaMat& mat = ActiveDynaMat();
 
-		double c2ndt = nn * m_DMat.C2Dt;
-		double c1np1dt = (nn + 1) * m_DMat.C1Dt;
+			double c2ndt = nn * mat.C2Dt;
+			double c1np1dt = (nn + 1) * mat.C1Dt;
 		double r = Dist(PW_center,o_Point);
 
 		double rpr = r + m_radiusPW;

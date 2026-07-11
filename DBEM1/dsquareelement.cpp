@@ -33,6 +33,7 @@ int* DSquareElement::BeElePos;
 double** DSquareElement::m_transmat;  //移至全局变量
 
 DynaMat DSquareElement::m_DMat;
+thread_local const DynaMat* DSquareElement::m_ThreadDMat = 0;
 
 int DSquareElement::FlagDynaMethod;
 int DSquareElement::Flagproblem;
@@ -93,6 +94,18 @@ DynaMat BuildDynaMat(double o_v, double o_G, double o_Rou, double o_dt)
 	mat.Half_1OC22_1OC12 = 0.5 * (mat.OneOverC2_2 - mat.OneOverC1_2);
 
 	return mat;
+}
+
+const DynaMat& DSquareElement::ActiveDynaMat()
+{
+	return m_ThreadDMat ? *m_ThreadDMat : m_DMat;
+}
+
+const DynaMat* DSquareElement::SetThreadDynaMat(const DynaMat* mat)
+{
+	const DynaMat* saved = m_ThreadDMat;
+	m_ThreadDMat = mat;
+	return saved;
 }
 
 int BoundaryValue::Convert(int bdid, long n)
@@ -486,8 +499,8 @@ void DSquareElement::GetTij(double* T, double* R, double* n)
 	//coef2=1-2*v
 
 	double t1 = R[0] * R[0];
-	double t2 = m_DMat.STCoef1 / t1;
-	double t3 = m_DMat.STCoef2 / R[0];
+	double t2 = ActiveDynaMat().STCoef1 / t1;
+	double t3 = ActiveDynaMat().STCoef2 / R[0];
 	double drdn = (R[1] * n[0] + R[2] * n[1] + R[3] * n[2]) / R[0];
 	double t4, t5, t6, t7, t8, t9, t10;
 
@@ -495,7 +508,7 @@ void DSquareElement::GetTij(double* T, double* R, double* n)
 	t6 = t3 * (R[3] * n[0] - R[1] * n[2]);
 	t7 = t3 * (R[3] * n[1] - R[2] * n[2]);
 	t8 = t2 * drdn;
-	t9 = t8 * m_DMat.STCoef2;
+	t9 = t8 * ActiveDynaMat().STCoef2;
 	t10 = t8 * 3.0 / t1;
 	t4 = t10 * R[1];
 	T[0] = t9 + t4 * R[1];
@@ -540,8 +553,8 @@ int DSquareElement::GetUij(double* U, double* R)
 	U[6] = 0.0;
 	U[7] = 0.0;
 	U[8] = 0.0;
-	double t1 = 1.0 / (16.0 *pi*(1.0 - m_DMat.v)*m_DMat.G)/R[0];
-	double t2 = t1 * (3.0 - 4.0*m_DMat.v);
+	double t1 = 1.0 / (16.0 *pi*(1.0 - ActiveDynaMat().v)*ActiveDynaMat().G)/R[0];
+	double t2 = t1 * (3.0 - 4.0*ActiveDynaMat().v);
 	double t3 = t1 / (R[0] * R[0]);
 	/*
 	[0 1 2
@@ -572,8 +585,8 @@ int DSquareElement::GetStaticUij(double* U, double* R)
 	U[6] = 0.0;
 	U[7] = 0.0;
 	U[8] = 0.0;
-	double t1 = 1.0 / (16.0 *pi*(1.0-m_DMat.v)*m_DMat.G)/R[0];
-	double t2 = t1*(3.0 - 4.0*m_DMat.v);
+	double t1 = 1.0 / (16.0 *pi*(1.0-ActiveDynaMat().v)*ActiveDynaMat().G)/R[0];
+	double t2 = t1*(3.0 - 4.0*ActiveDynaMat().v);
 	double t3 = t1/(R[0] * R[0]);
 	/*
 	[0 1 2
@@ -744,29 +757,29 @@ int DSquareElement::ObtainStress(double s1, double s2, double stress[3][3], doub
 	P[8] = duds1[2];
 	P[9] = duds2[2];
 
-	Y(1, 1) = 2.0*(1 - m_DMat.v)*m_DMat.G*n[0] / (1 - 2.0*m_DMat.v);
-	Y(1, 2) = m_DMat.G*n[1];
-	Y(1, 3) = m_DMat.G*n[2];
-	Y(1, 4) = m_DMat.G*n[1];
-	Y(1, 5) = 2.0*m_DMat.v*m_DMat.G*n[0] / (1 - 2.0*m_DMat.v);
-	Y(1, 7) = m_DMat.G*n[2];
-	Y(1, 9) = 2.0*m_DMat.v*m_DMat.G*n[0] / (1 - 2.0*m_DMat.v);
+	Y(1, 1) = 2.0*(1 - ActiveDynaMat().v)*ActiveDynaMat().G*n[0] / (1 - 2.0*ActiveDynaMat().v);
+	Y(1, 2) = ActiveDynaMat().G*n[1];
+	Y(1, 3) = ActiveDynaMat().G*n[2];
+	Y(1, 4) = ActiveDynaMat().G*n[1];
+	Y(1, 5) = 2.0*ActiveDynaMat().v*ActiveDynaMat().G*n[0] / (1 - 2.0*ActiveDynaMat().v);
+	Y(1, 7) = ActiveDynaMat().G*n[2];
+	Y(1, 9) = 2.0*ActiveDynaMat().v*ActiveDynaMat().G*n[0] / (1 - 2.0*ActiveDynaMat().v);
 
-	Y(2, 1) = 2.0*m_DMat.v*m_DMat.G*n[1] / (1 - 2.0*m_DMat.v);
-	Y(2, 2) = m_DMat.G*n[0];
-	Y(2, 4) = m_DMat.G*n[0];
-	Y(2, 5) = 2.0*(1 - m_DMat.v)*m_DMat.G*n[1] / (1 - 2.0*m_DMat.v);
-	Y(2, 6) = m_DMat.G*n[2];
-	Y(2, 8) = m_DMat.G*n[2];
-	Y(2, 9) = 2.0*m_DMat.v*m_DMat.G*n[1] / (1 - 2.0*m_DMat.v);
+	Y(2, 1) = 2.0*ActiveDynaMat().v*ActiveDynaMat().G*n[1] / (1 - 2.0*ActiveDynaMat().v);
+	Y(2, 2) = ActiveDynaMat().G*n[0];
+	Y(2, 4) = ActiveDynaMat().G*n[0];
+	Y(2, 5) = 2.0*(1 - ActiveDynaMat().v)*ActiveDynaMat().G*n[1] / (1 - 2.0*ActiveDynaMat().v);
+	Y(2, 6) = ActiveDynaMat().G*n[2];
+	Y(2, 8) = ActiveDynaMat().G*n[2];
+	Y(2, 9) = 2.0*ActiveDynaMat().v*ActiveDynaMat().G*n[1] / (1 - 2.0*ActiveDynaMat().v);
 
-	Y(3, 1) = 2.0*m_DMat.v*m_DMat.G*n[2] / (1 - 2.0*m_DMat.v);
-	Y(3, 3) = m_DMat.G*n[0];
-	Y(3, 5) = 2.0*m_DMat.v*m_DMat.G*n[2] / (1 - 2.0*m_DMat.v);
-	Y(3, 6) = m_DMat.G*n[1];
-	Y(3, 7) = m_DMat.G*n[0];
-	Y(3, 8) = m_DMat.G*n[1];
-	Y(3, 9) = 2.0*(1 - m_DMat.v)*m_DMat.G*n[2] / (1 - 2.0*m_DMat.v);
+	Y(3, 1) = 2.0*ActiveDynaMat().v*ActiveDynaMat().G*n[2] / (1 - 2.0*ActiveDynaMat().v);
+	Y(3, 3) = ActiveDynaMat().G*n[0];
+	Y(3, 5) = 2.0*ActiveDynaMat().v*ActiveDynaMat().G*n[2] / (1 - 2.0*ActiveDynaMat().v);
+	Y(3, 6) = ActiveDynaMat().G*n[1];
+	Y(3, 7) = ActiveDynaMat().G*n[0];
+	Y(3, 8) = ActiveDynaMat().G*n[1];
+	Y(3, 9) = 2.0*(1 - ActiveDynaMat().v)*ActiveDynaMat().G*n[2] / (1 - 2.0*ActiveDynaMat().v);
 
 	Y(4, 1) = dxds1[0];
 	Y(4, 2) = dxds1[1];
@@ -809,15 +822,15 @@ int DSquareElement::ObtainStress(double s1, double s2, double stress[3][3], doub
 			return 0;
 
 	double ukk = P[1] + P[5] + P[9];
-	stress[0][0] = 2.0*m_DMat.v*m_DMat.G / (1 - 2.0*m_DMat.v)*ukk + m_DMat.G*(P[1] + P[1]);
-	stress[1][0] = m_DMat.G*(P[2] + P[4]);
-	stress[2][0] = m_DMat.G*(P[3] + P[7]);
+	stress[0][0] = 2.0*ActiveDynaMat().v*ActiveDynaMat().G / (1 - 2.0*ActiveDynaMat().v)*ukk + ActiveDynaMat().G*(P[1] + P[1]);
+	stress[1][0] = ActiveDynaMat().G*(P[2] + P[4]);
+	stress[2][0] = ActiveDynaMat().G*(P[3] + P[7]);
 	stress[0][1] = stress[1][0];
-	stress[1][1] = 2.0*m_DMat.v*m_DMat.G / (1 - 2.0*m_DMat.v)*ukk + m_DMat.G*(P[5] + P[5]);
-	stress[2][1] = m_DMat.G*(P[6] + P[8]);
+	stress[1][1] = 2.0*ActiveDynaMat().v*ActiveDynaMat().G / (1 - 2.0*ActiveDynaMat().v)*ukk + ActiveDynaMat().G*(P[5] + P[5]);
+	stress[2][1] = ActiveDynaMat().G*(P[6] + P[8]);
 	stress[0][2] = stress[2][0];
 	stress[1][2] = stress[2][1];
-	stress[2][2] = 2.0*m_DMat.v*m_DMat.G / (1 - 2.0*m_DMat.v)*ukk + m_DMat.G*(P[9] + P[9]);
+	stress[2][2] = 2.0*ActiveDynaMat().v*ActiveDynaMat().G / (1 - 2.0*ActiveDynaMat().v)*ukk + ActiveDynaMat().G*(P[9] + P[9]);
 
 	if (!DSquareStressFinite(stress))
 	{
@@ -1010,20 +1023,20 @@ int DSquareElement::FuncI(double n, double dt, double* R, double& ResIn)
 {
 	double ndt = n * dt;
 
-	if (ndt < R[1] / m_DMat.C1)
+	if (ndt < R[1] / ActiveDynaMat().C1)
 	{
 		ResIn = 0.0;
 		return 0;
 	}
-	else if (ndt >= R[1] / m_DMat.C1 && ndt <= R[1] / m_DMat.C2)
+	else if (ndt >= R[1] / ActiveDynaMat().C1 && ndt <= R[1] / ActiveDynaMat().C2)
 	{
-		ResIn = 0.5 * (ndt * ndt / R[2] - m_DMat.OneOverC1_2);
+		ResIn = 0.5 * (ndt * ndt / R[2] - ActiveDynaMat().OneOverC1_2);
 		return 1;
 	}
 	else
 	{
-		// ResIn = 0.5 * (m_DMat.OneOverC2_2 - m_DMat.OneOverC1_2);
-		ResIn = m_DMat.Half_1OC22_1OC12;
+		// ResIn = 0.5 * (ActiveDynaMat().OneOverC2_2 - ActiveDynaMat().OneOverC1_2);
+		ResIn = ActiveDynaMat().Half_1OC22_1OC12;
 		return 2;
 	}
 
@@ -1034,20 +1047,20 @@ int DSquareElement::FuncJ(double n, double dt, double* R, double& ResJn)
 {
 	double ndt = n * dt;
 
-	if (ndt < R[1] / m_DMat.C1)
+	if (ndt < R[1] / ActiveDynaMat().C1)
 	{
 		ResJn = 0.0;
 		return 0;
 	}
-	else if (ndt >= R[1] / m_DMat.C1 && ndt <= R[1] / m_DMat.C2)
+	else if (ndt >= R[1] / ActiveDynaMat().C1 && ndt <= R[1] / ActiveDynaMat().C2)
 	{
-		ResJn = 0.333333333333 * (ndt * ndt * ndt / R[3] - m_DMat.OneOverC1_3);
+		ResJn = 0.333333333333 * (ndt * ndt * ndt / R[3] - ActiveDynaMat().OneOverC1_3);
 		return 1;
 	}
 	else
 	{
-		// ResJn = 1.0 / 3.0 * (m_DMat.OneOverC2_3 - m_DMat.OneOverC1_3);
-		ResJn = m_DMat.OneOverThree_1OC23_1OC13;
+		// ResJn = 1.0 / 3.0 * (ActiveDynaMat().OneOverC2_3 - ActiveDynaMat().OneOverC1_3);
+		ResJn = ActiveDynaMat().OneOverThree_1OC23_1OC13;
 		return 2;
 	}
 
@@ -1059,8 +1072,8 @@ int DSquareElement::ISeries(double n, double dt, double* R, double& ResISeries)
 	double ndt = n * dt;
 	double np1dt = ndt + dt;
 
-	double ROverC1 = R[1] / m_DMat.C1;
-	double ROverC2 = R[1] / m_DMat.C2;
+	double ROverC1 = R[1] / ActiveDynaMat().C1;
+	double ROverC2 = R[1] / ActiveDynaMat().C2;
 
 	double t1;
 
@@ -1071,24 +1084,24 @@ int DSquareElement::ISeries(double n, double dt, double* R, double& ResISeries)
 	}
 	else if (ndt >= ROverC1 && np1dt <= ROverC2)
 	{
-		ResISeries = (n + 0.5) * m_DMat.Dt_2 / R[2];
+		ResISeries = (n + 0.5) * ActiveDynaMat().Dt_2 / R[2];
 		return 1;
 	}
 	else if (ndt <= ROverC1 && (np1dt >= ROverC1 && np1dt <= ROverC2))
 	{
 		t1 = np1dt / R[1];
-		ResISeries = 0.5 * (t1 * t1 - m_DMat.OneOverC1_2);
+		ResISeries = 0.5 * (t1 * t1 - ActiveDynaMat().OneOverC1_2);
 		return 1;
 	}
 	else if (ndt <= ROverC1 && np1dt >= ROverC2)
 	{
-		ResISeries = m_DMat.Half_1OC22_1OC12;
+		ResISeries = ActiveDynaMat().Half_1OC22_1OC12;
 		return 1;
 	}
 	else if (np1dt >= ROverC2 && (ndt >= ROverC1 && ndt <= ROverC2))
 	{
 		t1 = ndt / R[1];
-		ResISeries = 0.5 * (m_DMat.OneOverC2_2 - t1 * t1);
+		ResISeries = 0.5 * (ActiveDynaMat().OneOverC2_2 - t1 * t1);
 		return 1;
 	}
 
@@ -1101,8 +1114,8 @@ int DSquareElement::JSeries(double n, double dt, double* R, double& ResJSeries)
 	double ndt = n * dt;
 	double np1dt = ndt + dt;
 
-	double ROverC1 = R[1] / m_DMat.C1;
-	double ROverC2 = R[1] / m_DMat.C2;
+	double ROverC1 = R[1] / ActiveDynaMat().C1;
+	double ROverC2 = R[1] / ActiveDynaMat().C2;
 
 	double t1;
 
@@ -1113,25 +1126,25 @@ int DSquareElement::JSeries(double n, double dt, double* R, double& ResJSeries)
 	}
 	else if (ndt >= ROverC1 && np1dt <= ROverC2)
 	{
-		t1 = m_DMat.Dt_3 / R[3];
+		t1 = ActiveDynaMat().Dt_3 / R[3];
 		ResJSeries = (n * n + n + 0.33333333333333333) * t1;
 		return 1;
 	}
 	else if (ndt <= ROverC1 && (np1dt >= ROverC1 && np1dt <= ROverC2))
 	{
 		t1 = np1dt / R[1];
-		ResJSeries = 0.33333333333333 * (t1 * t1 * t1 - m_DMat.OneOverC1_3);
+		ResJSeries = 0.33333333333333 * (t1 * t1 * t1 - ActiveDynaMat().OneOverC1_3);
 		return 1;
 	}
 	else if (ndt <= ROverC1 && np1dt >= ROverC2)
 	{
-		ResJSeries = m_DMat.OneOverThree_1OC23_1OC13;
+		ResJSeries = ActiveDynaMat().OneOverThree_1OC23_1OC13;
 		return 1;
 	}
 	else if (np1dt >= ROverC2 && (ndt >= ROverC1 && ndt <= ROverC2))
 	{
 		t1 = ndt / R[1];
-		ResJSeries = 0.333333333333333 * (m_DMat.OneOverC2_3 - t1 * t1 * t1);
+		ResJSeries = 0.333333333333333 * (ActiveDynaMat().OneOverC2_3 - t1 * t1 * t1);
 		return 1;
 	}
 
@@ -1151,8 +1164,8 @@ int DSquareElement::NeedCal(int type, double n, Point& o_Point)
 
 	double nn = ((type == 2) ? n - 1 : n);
 
-	double ndt = nn * m_DMat.Dt;
-	double np1dt = (nn + 1) * m_DMat.Dt;
+	double ndt = nn * ActiveDynaMat().Dt;
+	double np1dt = (nn + 1) * ActiveDynaMat().Dt;
 	double r = Dist(m_center, o_Point);
 
 	double Rmax = r + m_radius;
@@ -1161,11 +1174,11 @@ int DSquareElement::NeedCal(int type, double n, Point& o_Point)
 	if (Rmin < 0.0)
 		Rmin = 0.0;
 
-	double RmaxOverC1 = Rmax / m_DMat.C1;
-	double RmaxOverC2 = Rmax / m_DMat.C2;
+	double RmaxOverC1 = Rmax / ActiveDynaMat().C1;
+	double RmaxOverC2 = Rmax / ActiveDynaMat().C2;
 
-	double RminOverC1 = Rmin / m_DMat.C1;
-	double RminOverC2 = Rmin / m_DMat.C2;
+	double RminOverC1 = Rmin / ActiveDynaMat().C1;
+	double RminOverC2 = Rmin / ActiveDynaMat().C2;
 
 	if (ndt >= RmaxOverC2 || np1dt <= RminOverC1)
 		return 0;
@@ -1182,8 +1195,8 @@ int DSquareElement::NeedCal(int type, double n, Point& o_Point)
 
 	// old method
 	/*
-	double ndt = n * m_DMat.Dt;
-	double np1dt = ndt + m_DMat.Dt;
+	double ndt = n * ActiveDynaMat().Dt;
+	double np1dt = ndt + ActiveDynaMat().Dt;
 
 	double r;
 	double ROverC1,ROverC2;
@@ -1197,8 +1210,8 @@ int DSquareElement::NeedCal(int type, double n, Point& o_Point)
 		flag = 0;
 
 		r = Dist(m_rcenPW[i],o_Point);
-		ROverC1 = r / m_DMat.C1;
-		ROverC2 = r / m_DMat.C2;
+		ROverC1 = r / ActiveDynaMat().C1;
+		ROverC2 = r / ActiveDynaMat().C2;
 
 		if(ROverC1 >= ndt && ROverC1 < np1dt)
 			flag = 1;
@@ -1244,7 +1257,7 @@ int DSquareElement::GetDynaUij(double* U, double n, double dt, double* R, double
 
 	int Flag = 0;
 
-	if (Fai(n, m_DMat.Dt, R[1], m_DMat.C1))
+	if (Fai(n, ActiveDynaMat().Dt, R[1], ActiveDynaMat().C1))
 	{
 		Flag++;
 
@@ -1257,7 +1270,7 @@ int DSquareElement::GetDynaUij(double* U, double n, double dt, double* R, double
 		RIRJ[5] = RI[3] * RI[3];
 
 		GetAij(Tij, R, RI, RIRJ);
-		t1 = m_DMat.OneOverFourPaiRou;
+		t1 = ActiveDynaMat().OneOverFourPaiRou;
 		U[0] += Tij[0] * t1;
 		U[1] += Tij[1] * t1;
 		U[2] += Tij[2] * t1;
@@ -1269,7 +1282,7 @@ int DSquareElement::GetDynaUij(double* U, double n, double dt, double* R, double
 		U[8] += Tij[8] * t1;
 	}
 
-	if (Fai(n, m_DMat.Dt, R[1], m_DMat.C2))
+	if (Fai(n, ActiveDynaMat().Dt, R[1], ActiveDynaMat().C2))
 	{
 		Flag++;
 
@@ -1285,7 +1298,7 @@ int DSquareElement::GetDynaUij(double* U, double n, double dt, double* R, double
 		}
 
 		GetBij(Tij, R, RI, RIRJ);
-		t1 = m_DMat.OneOverFourPaiRou;
+		t1 = ActiveDynaMat().OneOverFourPaiRou;
 		U[0] += Tij[0] * t1;
 		U[1] += Tij[1] * t1;
 		U[2] += Tij[2] * t1;
@@ -1297,7 +1310,7 @@ int DSquareElement::GetDynaUij(double* U, double n, double dt, double* R, double
 		U[8] += Tij[8] * t1;
 	}
 
-	if (ISeries(n, m_DMat.Dt, R, ResISeries))
+	if (ISeries(n, ActiveDynaMat().Dt, R, ResISeries))
 	{
 		Flag++;
 
@@ -1313,7 +1326,7 @@ int DSquareElement::GetDynaUij(double* U, double n, double dt, double* R, double
 		}
 
 		GetCij(Tij, R, RI, RIRJ);
-		t1 = m_DMat.OneOverFourPaiRou * ResISeries;
+		t1 = ActiveDynaMat().OneOverFourPaiRou * ResISeries;
 		U[0] += Tij[0] * t1;
 		U[1] += Tij[1] * t1;
 		U[2] += Tij[2] * t1;
@@ -1350,7 +1363,7 @@ int DSquareElement::GetDynaT1ij(double* T, double n, double dt, double* R, doubl
 
 	int Flag = 0;
 
-	if (Fai(n, m_DMat.Dt, R[1], m_DMat.C1))
+	if (Fai(n, ActiveDynaMat().Dt, R[1], ActiveDynaMat().C1))
 	{
 		Flag++;
 
@@ -1368,9 +1381,9 @@ int DSquareElement::GetDynaT1ij(double* T, double n, double dt, double* R, doubl
 		GetDij(T1ij, R, RI, Nor, RIRJ);
 		GetGij(T2ij, R, RI, Nor, RIRJ);
 
-		t1 = ONE_OVER_4PI * (n + 1.0 - R[1] / m_DMat.C1Dt);
-		//		t2 = - ONE_OVER_4PI / m_DMat.Dt;   // 我推导
-		t2 = ONE_OVER_4PI / m_DMat.Dt;     // 英文书结果
+		t1 = ONE_OVER_4PI * (n + 1.0 - R[1] / ActiveDynaMat().C1Dt);
+		//		t2 = - ONE_OVER_4PI / ActiveDynaMat().Dt;   // 我推导
+		t2 = ONE_OVER_4PI / ActiveDynaMat().Dt;     // 英文书结果
 		T[0] += T1ij[0] * t1 + T2ij[0] * t2;
 		T[1] += T1ij[1] * t1 + T2ij[1] * t2;
 		T[2] += T1ij[2] * t1 + T2ij[2] * t2;
@@ -1382,7 +1395,7 @@ int DSquareElement::GetDynaT1ij(double* T, double n, double dt, double* R, doubl
 		T[8] += T1ij[8] * t1 + T2ij[8] * t2;
 	}
 
-	if (Fai(n, m_DMat.Dt, R[1], m_DMat.C2))
+	if (Fai(n, ActiveDynaMat().Dt, R[1], ActiveDynaMat().C2))
 	{
 		Flag++;
 
@@ -1400,9 +1413,9 @@ int DSquareElement::GetDynaT1ij(double* T, double n, double dt, double* R, doubl
 		GetEij(T1ij, R, RI, Nor, RIRJ);
 		GetHij(T2ij, R, RI, Nor, RIRJ);
 
-		t1 = ONE_OVER_4PI * (n + 1.0 - R[1] / m_DMat.C2Dt);
-		//		t2 = - ONE_OVER_4PI / m_DMat.Dt;   // 我推导
-		t2 = ONE_OVER_4PI / m_DMat.Dt;   // 英文书结果
+		t1 = ONE_OVER_4PI * (n + 1.0 - R[1] / ActiveDynaMat().C2Dt);
+		//		t2 = - ONE_OVER_4PI / ActiveDynaMat().Dt;   // 我推导
+		t2 = ONE_OVER_4PI / ActiveDynaMat().Dt;   // 英文书结果
 		T[0] += T1ij[0] * t1 + T2ij[0] * t2;
 		T[1] += T1ij[1] * t1 + T2ij[1] * t2;
 		T[2] += T1ij[2] * t1 + T2ij[2] * t2;
@@ -1414,11 +1427,11 @@ int DSquareElement::GetDynaT1ij(double* T, double n, double dt, double* R, doubl
 		T[8] += T1ij[8] * t1 + T2ij[8] * t2;
 	}
 
-	if (ISeries(n, m_DMat.Dt, R, ResISeries))
+	if (ISeries(n, ActiveDynaMat().Dt, R, ResISeries))
 	{
 		Flag++;
 
-		JSeries(n, m_DMat.Dt, R, ResJSeries);
+		JSeries(n, ActiveDynaMat().Dt, R, ResJSeries);
 
 		if (!Flag_RIRJ)
 		{
@@ -1433,7 +1446,7 @@ int DSquareElement::GetDynaT1ij(double* T, double n, double dt, double* R, doubl
 
 		GetFij(T1ij, R, RI, Nor, RIRJ);
 
-		t1 = ONE_OVER_4PI * ((n + 1.0) * ResISeries - R[1] * ResJSeries / m_DMat.Dt);
+		t1 = ONE_OVER_4PI * ((n + 1.0) * ResISeries - R[1] * ResJSeries / ActiveDynaMat().Dt);
 		T[0] += T1ij[0] * t1;
 		T[1] += T1ij[1] * t1;
 		T[2] += T1ij[2] * t1;
@@ -1470,7 +1483,7 @@ int DSquareElement::GetDynaT2ij(double* T, double n, double dt, double* R, doubl
 
 	int Flag = 0;
 
-	if (Fai(n - 1, m_DMat.Dt, R[1], m_DMat.C1))
+	if (Fai(n - 1, ActiveDynaMat().Dt, R[1], ActiveDynaMat().C1))
 	{
 		Flag++;
 
@@ -1488,9 +1501,9 @@ int DSquareElement::GetDynaT2ij(double* T, double n, double dt, double* R, doubl
 		GetDij(T1ij, R, RI, Nor, RIRJ);
 		GetGij(T2ij, R, RI, Nor, RIRJ);
 
-		t1 = ONE_OVER_4PI * (1.0 - n + R[1] / m_DMat.C1Dt);
-		//		t2 = ONE_OVER_4PI / m_DMat.Dt;    // 我推导
-		t2 = -ONE_OVER_4PI / m_DMat.Dt;    // 英文书结果
+		t1 = ONE_OVER_4PI * (1.0 - n + R[1] / ActiveDynaMat().C1Dt);
+		//		t2 = ONE_OVER_4PI / ActiveDynaMat().Dt;    // 我推导
+		t2 = -ONE_OVER_4PI / ActiveDynaMat().Dt;    // 英文书结果
 		T[0] += T1ij[0] * t1 + T2ij[0] * t2;
 		T[1] += T1ij[1] * t1 + T2ij[1] * t2;
 		T[2] += T1ij[2] * t1 + T2ij[2] * t2;
@@ -1502,7 +1515,7 @@ int DSquareElement::GetDynaT2ij(double* T, double n, double dt, double* R, doubl
 		T[8] += T1ij[8] * t1 + T2ij[8] * t2;
 	}
 
-	if (Fai(n - 1, m_DMat.Dt, R[1], m_DMat.C2))
+	if (Fai(n - 1, ActiveDynaMat().Dt, R[1], ActiveDynaMat().C2))
 	{
 		Flag++;
 
@@ -1520,9 +1533,9 @@ int DSquareElement::GetDynaT2ij(double* T, double n, double dt, double* R, doubl
 		GetEij(T1ij, R, RI, Nor, RIRJ);
 		GetHij(T2ij, R, RI, Nor, RIRJ);
 
-		t1 = ONE_OVER_4PI * (1.0 - n + R[1] / m_DMat.C2Dt);
-		//		t2 = ONE_OVER_4PI / m_DMat.Dt;    // 我推导
-		t2 = -ONE_OVER_4PI / m_DMat.Dt;    // 英文书结果
+		t1 = ONE_OVER_4PI * (1.0 - n + R[1] / ActiveDynaMat().C2Dt);
+		//		t2 = ONE_OVER_4PI / ActiveDynaMat().Dt;    // 我推导
+		t2 = -ONE_OVER_4PI / ActiveDynaMat().Dt;    // 英文书结果
 		T[0] += T1ij[0] * t1 + T2ij[0] * t2;
 		T[1] += T1ij[1] * t1 + T2ij[1] * t2;
 		T[2] += T1ij[2] * t1 + T2ij[2] * t2;
@@ -1534,11 +1547,11 @@ int DSquareElement::GetDynaT2ij(double* T, double n, double dt, double* R, doubl
 		T[8] += T1ij[8] * t1 + T2ij[8] * t2;
 	}
 
-	if (ISeries(n - 1, m_DMat.Dt, R, ResISeries))
+	if (ISeries(n - 1, ActiveDynaMat().Dt, R, ResISeries))
 	{
 		Flag++;
 
-		JSeries(n - 1, m_DMat.Dt, R, ResJSeries);
+		JSeries(n - 1, ActiveDynaMat().Dt, R, ResJSeries);
 
 		if (!Flag_RIRJ)
 		{
@@ -1553,7 +1566,7 @@ int DSquareElement::GetDynaT2ij(double* T, double n, double dt, double* R, doubl
 
 		GetFij(T1ij, R, RI, Nor, RIRJ);
 
-		t1 = ONE_OVER_4PI * ((1.0 - n) * ResISeries + R[1] * ResJSeries / m_DMat.Dt);
+		t1 = ONE_OVER_4PI * ((1.0 - n) * ResISeries + R[1] * ResJSeries / ActiveDynaMat().Dt);
 		T[0] += T1ij[0] * t1;
 		T[1] += T1ij[1] * t1;
 		T[2] += T1ij[2] * t1;
@@ -2299,8 +2312,8 @@ int DSquareElement::InElementStaticTij()
 
 	// 计算Tij的奇异积分：对于强奇异，需要在角坐标系下加一项减一项；对于弱奇异，只需要在角坐标系下积分即可
 
-	coef1 = -1.0 / (8.0*pi*(1.0 - m_DMat.v));
-	coef2 = 1.0 - 2.0*m_DMat.v;
+	coef1 = -1.0 / (8.0*pi*(1.0 - ActiveDynaMat().v));
+	coef2 = 1.0 - 2.0*ActiveDynaMat().v;
 	for (i = 0; i < 1; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
@@ -2457,8 +2470,8 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 
 	// 计算Tij的奇异积分：对于强奇异，需要在角坐标系下加一项减一项；对于弱奇异，只需要在角坐标系下积分即可
 
-	coef1 = -1.0 / (8.0 * pi * (1.0 - m_DMat.v));
-	coef2 = 1.0 - 2.0 * m_DMat.v;
+	coef1 = -1.0 / (8.0 * pi * (1.0 - ActiveDynaMat().v));
+	coef2 = 1.0 - 2.0 * ActiveDynaMat().v;
 	for (i = 0; i < 1; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
@@ -3516,22 +3529,22 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 			m_elelist[FieldEleID].IntUijforInfEle();
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 4);
 
 			}
 
@@ -3555,22 +3568,22 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 4);
 
 			}
 
@@ -3584,22 +3597,22 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 4);
 
 			}
 
@@ -3615,22 +3628,22 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 			// T[1,1]
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 4);
 
 			}
 
@@ -3695,16 +3708,16 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 		{
 			m_elelist[FieldEleID].IntUijforInfEle();
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 1);
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 2);
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 3);
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 4);
 			}
 		}
 		else
@@ -3726,22 +3739,22 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 0.0, DSquareElement::ActiveDynaMat().Dt, 4);
 
 			}
 
@@ -3755,22 +3768,22 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(2, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 4);
 
 			}
 
@@ -3785,22 +3798,22 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 			// G[1], T[1,1]
 			if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][4]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 1);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 1);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][5]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 2);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 2);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][6]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 3);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 3);
 
 			}
 			else if (InfElePID[m_InfEleFlag][2] == ElePID[FieldEleID][7]) {
 
-				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::m_DMat.Dt, 4);
+				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 4);
 			}
 
 			for (i = 0; i < 1; ++i)
@@ -3881,32 +3894,32 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			if (BCID == 123)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 		}
 		else if (Flag == 2)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 		}
 
@@ -3940,7 +3953,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			if (BCID == 123)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -3952,7 +3965,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -3962,7 +3975,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -3974,7 +3987,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -3984,7 +3997,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -3994,7 +4007,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4009,7 +4022,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4021,7 +4034,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4031,7 +4044,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4043,7 +4056,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4053,7 +4066,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4063,7 +4076,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4086,7 +4099,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			if (BCID == 123)//Uij
 			{
 				// G[1]
-				IntDynaUijPW(source, 1.0, m_DMat.Dt);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4098,7 +4111,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4110,7 +4123,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 1.0, m_DMat.Dt);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4120,7 +4133,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4135,7 +4148,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4147,7 +4160,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 1.0, m_DMat.Dt);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4159,7 +4172,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4169,7 +4182,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(1, source, 1.0, m_DMat.Dt);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4218,32 +4231,32 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			if (BCID == 123)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 		}
 		else if (Flag == 2)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 		}
 
@@ -4277,7 +4290,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			if (BCID == 123)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt,T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt,T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4289,7 +4302,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt,T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt,T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4299,7 +4312,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt,T_ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt,T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4311,7 +4324,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4321,7 +4334,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4331,7 +4344,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4346,7 +4359,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4358,7 +4371,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4368,7 +4381,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4380,7 +4393,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4390,7 +4403,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4400,7 +4413,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4423,7 +4436,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			if (BCID == 123)//Uij
 			{
 				// G[1]
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4435,7 +4448,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4447,7 +4460,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4457,7 +4470,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4472,7 +4485,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4484,7 +4497,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4496,7 +4509,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4506,7 +4519,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4553,32 +4566,32 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 		}
 		else if (Flag == 2)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 		}
 
@@ -4609,7 +4622,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			if (BCID == 123)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4618,14 +4631,14 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4634,21 +4647,21 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += 4.0 * m_AssistUij[ID][i];
 				}
 
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4660,7 +4673,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4669,14 +4682,14 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4685,21 +4698,21 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += 4.0 * m_AssistUij[ID][i];
 				}
 
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4719,7 +4732,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			if (BCID == 123)//Uij
 			{
 				// G[1]
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4728,7 +4741,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else if (BCID == 456) // Tij
 			{
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4737,14 +4750,14 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += m_AssistUij[ID][i];
 				}
 
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4756,7 +4769,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 		{
 			if (BCID == 123)//Uij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4765,7 +4778,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else if (BCID == 456)//Tij
 			{
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4774,14 +4787,14 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, int ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += m_AssistUij[ID][i];
 				}
 
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -4823,32 +4836,32 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 		}
 		else if (Flag == 2)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 			}
 		}
 
@@ -4882,7 +4895,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			if (BCID == 456)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4894,7 +4907,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4904,7 +4917,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4916,7 +4929,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4926,7 +4939,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4936,7 +4949,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4951,7 +4964,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4963,7 +4976,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4973,7 +4986,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4985,7 +4998,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -4995,7 +5008,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(1, source, 0.0, m_DMat.Dt);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5005,7 +5018,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5028,7 +5041,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			if (BCID == 456)//Uij
 			{
 				// G[1]
-				IntDynaUijPW(source, 1.0, m_DMat.Dt);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5040,7 +5053,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5052,7 +5065,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 1.0, m_DMat.Dt);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5062,7 +5075,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5077,7 +5090,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5089,7 +5102,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 1.0, m_DMat.Dt);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5101,7 +5114,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5111,7 +5124,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 					}
 				}
 
-				IntDynaTij(1, source, 1.0, m_DMat.Dt);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5159,32 +5172,32 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 		}
 		else if (Flag == 2)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 			}
 		}
 
@@ -5218,7 +5231,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			if (BCID == 456)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5230,7 +5243,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5240,7 +5253,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5252,7 +5265,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5262,7 +5275,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5272,7 +5285,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5287,7 +5300,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5299,7 +5312,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5309,7 +5322,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5321,7 +5334,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5331,7 +5344,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5341,7 +5354,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5364,7 +5377,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			if (BCID == 456)//Uij
 			{
 				// G[1]
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5376,7 +5389,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5388,7 +5401,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5398,7 +5411,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5413,7 +5426,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5425,7 +5438,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5437,7 +5450,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5447,7 +5460,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 					}
 				}
 
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, T_ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, T_ID);
 
 				for (i = 0; i < 8; ++i)
 				{
@@ -5496,32 +5509,32 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			if (BCID == 456)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 		}
 		else if (Flag == 2)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 			}
 		}
 
@@ -5552,7 +5565,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			if (BCID == 456)//Uij
 			{
 				// G[0]
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5561,14 +5574,14 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5577,21 +5590,21 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += 4.0 * m_AssistUij[ID][i];
 				}
 
-				IntDynaTijPW(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTijPW(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5603,7 +5616,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5612,14 +5625,14 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5628,21 +5641,21 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 0.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += 4.0 * m_AssistUij[ID][i];
 				}
 
-				IntDynaTij(1, source, 0.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 0.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TT[i] += 4.0 * m_AssistTij[ID][i];
 				}
 
-				IntDynaTij(2, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(2, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5662,7 +5675,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			if (BCID == 456)//Uij
 			{
 				// G[1]
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5671,7 +5684,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else if (BCID == 123) // Tij
 			{
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5680,14 +5693,14 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else // both Uij and Tij
 			{
-				IntDynaUijPW(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUijPW(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += m_AssistUij[ID][i];
 				}
 
-				IntDynaTijPW(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTijPW(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5699,7 +5712,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 		{
 			if (BCID == 456)//Uij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5708,7 +5721,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else if (BCID == 123)//Tij
 			{
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5717,14 +5730,14 @@ int DSquareElement::RegularIntKnownCoef(Point& source, int ID)
 			}
 			else//both Uij and Tij
 			{
-				IntDynaUij(source, 1.0, m_DMat.Dt, ID);
+				IntDynaUij(source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
 					TU[i] += m_AssistUij[ID][i];
 				}
 
-				IntDynaTij(1, source, 1.0, m_DMat.Dt, ID);
+				IntDynaTij(1, source, 1.0, ActiveDynaMat().Dt, ID);
 
 				for (i = 0; i < 9; ++i)
 				{
@@ -5846,7 +5859,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		if (BCID == 123)//Uij
 		{
 			// G[1]
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -5858,7 +5871,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -5870,7 +5883,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		}
 		else // both Uij and Tij
 		{
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -5880,7 +5893,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 				}
 			}
 
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6004,7 +6017,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		if (BCID == 123)//Uij
 		{
 			// G[1]
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt,T_ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt,T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6016,7 +6029,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6028,7 +6041,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		}
 		else // both Uij and Tij
 		{
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6038,7 +6051,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 				}
 			}
 
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6141,7 +6154,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, int ID)
 		if (BCID == 123)//Uij
 		{
 			// G[1]
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
@@ -6150,7 +6163,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, int ID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
@@ -6159,14 +6172,14 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, int ID)
 		}
 		else // both Uij and Tij
 		{
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
 				TU[i] += m_AssistUij[ID][i];
 			}
 
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
@@ -6282,7 +6295,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		if (BCID == 456)//Uij
 		{
 			// G[1]
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6294,7 +6307,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6306,7 +6319,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		}
 		else // both Uij and Tij
 		{
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6316,7 +6329,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 				}
 			}
 
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6415,7 +6428,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, int ID)
 		if (BCID == 456)//Uij
 		{
 			// G[1]
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
@@ -6424,7 +6437,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, int ID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
@@ -6433,14 +6446,14 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, int ID)
 		}
 		else // both Uij and Tij
 		{
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
 				TU[i] += m_AssistUij[ID][i];
 			}
 
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, ID);
 
 			for (i = 0; i < 9; ++i)
 			{
@@ -6556,9 +6569,9 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		if (BCID == 456)//Uij
 		{
 			// G[1]
-			//IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt);
+			//IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6570,7 +6583,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6582,7 +6595,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		}
 		else // both Uij and Tij
 		{
-			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{
@@ -6592,7 +6605,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 				}
 			}
 
-			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, m_DMat.Dt, T_ID);
+			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
 			for (i = 0; i < 1; ++i)
 			{

@@ -55,6 +55,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rel-tol", type=float, default=3.0e-1)
     parser.add_argument("--pollute-e", type=float, default=200.0)
     parser.add_argument("--pollute-rho", type=float, default=20.0)
+    parser.add_argument("--domain-override", action="append", default=[],
+                        help="override one domain material as id:E:nu:rho after reading rod120_100")
+    parser.add_argument("--metrics-only", action="store_true",
+                        help="only run and validate multi-domain material/time-grid metrics")
     return parser.parse_args()
 
 
@@ -72,20 +76,34 @@ def parse_materials(lines: Sequence[str]) -> Tuple[Material, List[Material], int
     return global_mat, mats, domain_count
 
 
-def write_polluted_card(src: Path, dst: Path, pollute_e: float, pollute_rho: float) -> None:
+def parse_domain_overrides(values: Sequence[str]) -> Dict[int, Material]:
+    overrides: Dict[int, Material] = {}
+    for value in values:
+        parts = value.split(":")
+        if len(parts) != 4:
+            raise RuntimeError(f"invalid --domain-override {value!r}; expected id:E:nu:rho")
+        overrides[int(parts[0])] = Material(float(parts[1]), float(parts[2]), float(parts[3]))
+    return overrides
+
+
+def write_polluted_card(src: Path, dst: Path, pollute_e: float, pollute_rho: float,
+                        overrides: Dict[int, Material] | None = None) -> None:
     lines = read_card(src)
     _, mats, domain_count = parse_materials(lines)
+    overrides = overrides or {}
     lines[6] = f"{pollute_e:.17g}"
     lines[8] = f"{pollute_rho:.17g}"
     # Preserve multi-domain material rows exactly except for normalizing whitespace.
     for i, mat in enumerate(mats):
+        mat = overrides.get(i + 1, mat)
         lines[17 + i] = f"{i + 1} {mat.e:.17g} {mat.nu:.17g} {mat.rho:.17g}"
     if domain_count != 5:
         raise RuntimeError(f"expected rod120_100 DomainCount=5, got {domain_count}")
     dst.write_text("\n".join(lines) + "\n", encoding="ascii")
 
 
-def copy_case(repo: Path, exe: Path, run_root: Path, pollute_e: float, pollute_rho: float) -> Path:
+def copy_case(repo: Path, exe: Path, run_root: Path, pollute_e: float, pollute_rho: float,
+              overrides: Dict[int, Material] | None = None) -> Path:
     stamp = time.strftime("%Y%m%d_%H%M%S")
     case_dir = run_root / stamp
     input_dir = case_dir / "input"
@@ -102,6 +120,7 @@ def copy_case(repo: Path, exe: Path, run_root: Path, pollute_e: float, pollute_r
         case_dir / "BEM_DATACARD.DAT",
         pollute_e,
         pollute_rho,
+        overrides,
     )
     return case_dir
 
@@ -233,6 +252,29 @@ def material_logs_match(case_dir: Path, material: Material, domain_count: int) -
     return True
 
 
+def metrics_time_grid_ok(case_dir: Path, mats: Sequence[Material]) -> bool:
+    metrics = read_domain_material_metrics(case_dir)
+    if metrics.get("MultiRateTimeMode") != "1":
+        return False
+    beta = float(metrics.get("MultiRateBetaLimit", "nan"))
+    if not math.isfinite(beta) or beta <= 0.0:
+        return False
+    found_substep_gt_one = False
+    for i, _ in enumerate(mats):
+        value = metrics.get(f"MultiRateDomain[{i}]")
+        if not value:
+            return False
+        sub_match = re.search(r"\bsubsteps\s+([0-9]+)", value)
+        beta_actual = parse_named_float(value, "betaActual")
+        if not sub_match:
+            return False
+        if int(sub_match.group(1)) > 1:
+            found_substep_gt_one = True
+        if beta_actual > beta * (1.0 + 1.0e-9):
+            return False
+    return found_substep_gt_one or len({(m.e, m.nu, m.rho) for m in mats}) == 1
+
+
 def compare_state(case_dir: Path, material: Material, length: float, axis_component: int) -> AnalyticResult:
     dt = read_dt(case_dir)
     state_path = case_output_dir(case_dir) / "validation_state.csv"
@@ -303,6 +345,7 @@ def run_case(case_dir: Path, exe: Path, timeout: int) -> subprocess.CompletedPro
 def main() -> int:
     args = parse_args()
     repo = args.repo.resolve()
+    overrides = parse_domain_overrides(args.domain_override)
     backup_card: bytes | None = None
     card_path: Path | None = None
     if args.in_place:
@@ -315,9 +358,10 @@ def main() -> int:
             card_path,
             args.pollute_e,
             args.pollute_rho,
+            overrides,
         )
     else:
-        case_dir = copy_case(repo, args.exe, repo / args.run_root, args.pollute_e, args.pollute_rho)
+        case_dir = copy_case(repo, args.exe, repo / args.run_root, args.pollute_e, args.pollute_rho, overrides)
         exe = case_dir / "DBEM1.exe"
     print(f"case_dir={case_dir}")
     try:
@@ -330,6 +374,17 @@ def main() -> int:
         global_mat, mats, domain_count = parse_materials(card_lines)
         if global_mat.e == mats[0].e and global_mat.rho == mats[0].rho:
             raise RuntimeError("global material was not polluted")
+        time_grid_ok = metrics_time_grid_ok(case_dir, mats)
+        if args.metrics_only:
+            passed = time_grid_ok
+            report = (
+                f"time_grid_ok={int(time_grid_ok)}\n"
+                f"passed={int(passed)}\n"
+            )
+            (case_dir / "analytic_validation.txt").write_text(report, encoding="ascii")
+            print(report)
+            return 0 if passed else 1
+
         if len({(m.e, m.nu, m.rho) for m in mats}) != 1:
             raise RuntimeError("rod120_100 analytic validation expects uniform multi-domain material")
 

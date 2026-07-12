@@ -1,0 +1,415 @@
+\documentclass[aspectratio=169,UTF8]{ctexbeamer}
+
+\usetheme{Madrid}
+\usecolortheme{default}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{xcolor}
+
+\title{1node 多域动力边界元程序阶段成果}
+\subtitle{多域自由度映射、块稀疏装配与 GMRES 求解链路}
+\author{课题组汇报}
+\institute{DBEM 动力边界元程序}
+\date{\today}
+
+\definecolor{dbemblue}{RGB}{36,84,132}
+\definecolor{dbemgray}{RGB}{100,100,100}
+
+\newcommand{\code}[1]{\texttt{\small #1}}
+\newcommand{\figplaceholder}[2]{
+  \begin{center}
+    \begin{tikzpicture}
+      \draw[rounded corners=2pt, dbemgray, thick] (0,0) rectangle (#1,#2);
+      \node[align=center, text=dbemgray] at (#1/2,#2/2) {算例插图占位\\后续填入 Tecplot 截图、曲线或误差图};
+    \end{tikzpicture}
+  \end{center}
+}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{汇报主线}
+  \begin{enumerate}
+    \item 当前 1node 多域版本已经完成了哪些程序能力。
+    \item 多域中真正新增的技术点：域、界面、自由度和矩阵装配。
+    \item 当前 GMRES 求解链路如何复用单域程序，又在哪里重构。
+    \item 已有验证输出如何支撑正确性判断。
+    \item 当前边界和下一步工作。
+  \end{enumerate}
+\end{frame}
+
+\section{阶段定位}
+
+\begin{frame}{当前版本的定位}
+  \begin{block}{目标}
+    在 1node 常值不连续单元框架下，将原单域 TDBEM-GMRES 路径扩展为可计算多个共形子域的多域路径。
+  \end{block}
+
+  \begin{itemize}
+    \item 不重写基本解、奇异积分、GMRES 或旧 CCSR 乘法内核。
+    \item 新增代码集中处理多域拓扑、域内材料、界面自由度、全局装配和状态回写。
+    \item 当前主求解入口为 \code{DynaGMRESSolverMultiDomainCCSR(...)}。
+    \item 多域启用方式：在旧 \code{BEM\_DATACARD.DAT} 末尾追加 \code{DomainCount}、域材料和界面表。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{当前成果边界}
+  \begin{itemize}
+    \item 单元层面：当前仍是 1node 常值单元，\code{NodeNum = EleNum}。
+    \item 边界类型：多域路径目前只支持整块 \code{BCID=123} 和 \code{BCID=456}。
+    \item 界面类型：共形界面，一侧单元与另一侧单元显式配对。
+    \item 求解器：多域路径接入 GMRES-CCSR；Gauss 与 ACA 路径仍保持原单域逻辑。
+    \item 批量边界工况：当前多域 GMRES 暂未接入 batch boundary mode。
+  \end{itemize}
+
+  \begin{alertblock}{汇报重点}
+    这里不展开 BEM 基础公式，只讲多域改造带来的程序结构和数值约束处理。
+  \end{alertblock}
+\end{frame}
+
+\section{多域模型}
+
+\begin{frame}{多域输入：从旧卡片平滑扩展}
+  \begin{columns}
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item 旧卡片读完 solver 参数后，尝试继续读多域段。
+        \item 读不到 \code{DomainCount}：保持旧单域路径。
+        \item 读到 \code{DomainCount}：启用 \code{MultiDomainModel}。
+        \item 域材料行独立给出 $E,\nu,\rho$，由 \code{BuildDynaMat} 转换为波速与时间步系数。
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{block}{卡片追加段}
+        \small
+        \begin{tabular}{l}
+          \code{DomainCount} \\
+          \code{domainId E v Rou} \\
+          \code{...} \\
+          \code{InterfaceCount} \\
+          \code{domainA eleA domainB eleB normalSign} \\
+          \code{...}
+        \end{tabular}
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{核心数据结构}
+  \begin{table}
+    \centering
+    \begin{tabular}{ll}
+      \toprule
+      类型 & 作用 \\
+      \midrule
+      \code{Domain} & 子域编号、单元范围、边界节点列表、域材料 \\
+      \code{InterfacePair} & 两侧域、两侧界面单元、法向符号、节点映射状态 \\
+      \code{DomainMaterialContext} & 按域查询 \code{DynaMat} \\
+      \code{MultiDomainModel} & 多域拓扑、材料上下文、全局单元/节点数 \\
+      \code{GlobalDofMap} & 外边界与界面未知量到全局块编号的映射 \\
+      \code{MultiDomainCCSRBuilder} & 累加 3x3 块并输出 \code{CCSRMat/SymCCSRMat} \\
+      \code{MultiDomainState} & 每个时间步的全局未知、已知、历史位移和历史面力 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+\end{frame}
+
+\begin{frame}{域划分与界面标记}
+  \begin{itemize}
+    \item \code{BuildMultiDomainModel} 根据 \code{DomainCount} 初始化域。
+    \item 默认按单元顺序平均切分；若卡片给出界面表，则采用显式 \code{InterfacePair}。
+    \item \code{ApplyMultiDomainModelToElements} 给每个 \code{DSquareElement} 写入：
+      \begin{itemize}
+        \item \code{DomainID}：所属子域；
+        \item \code{LocalEleID}：域内局部编号；
+        \item \code{SurfaceType}：外边界或内部界面。
+      \end{itemize}
+    \item 当前 1node 版本的界面节点映射退化为 \code{local 0 -> local 0}，但接口已为高阶/多节点扩展保留。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{材料上下文：每个域一套动力参数}
+  \begin{itemize}
+    \item \code{BuildDynaMat(v,G,Rou,dt)} 将材料参数统一构造成 \code{DynaMat}。
+    \item 多域初始化时，每个域保存独立的 $C_1,C_2,C_1\Delta t,C_2\Delta t$。
+    \item 单元奇异积分和历史影响系数计算前，用 \code{ScopedDynaMat} 临时切换当前线程材料。
+    \item 这样避免复制旧积分公式，同时保证不同域调用 \code{ActiveDynaMat()} 得到不同材料参数。
+  \end{itemize}
+
+  \begin{block}{工程要点}
+    材料切换被限制在矩阵块计算作用域内，离开作用域后自动恢复，减少全局静态材料变量带来的串扰。
+  \end{block}
+\end{frame}
+
+\section{界面与自由度}
+
+\begin{frame}{自由度设计：用未知量共享实现界面条件}
+  \begin{columns}
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item 对外边界，仍按 \code{BCID} 决定未知量：
+          \begin{itemize}
+            \item \code{123}：位移已知，面力未知；
+            \item \code{456}：面力已知，位移未知。
+          \end{itemize}
+        \item 对内部界面，不再把两侧未知量分开求解。
+        \item 界面 A/B 两侧共用一个位移块和一个面力块。
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{block}{界面约束}
+        \[
+          \mathbf{u}_A = \mathbf{u}_I,\quad
+          \mathbf{u}_B = \mathbf{u}_I
+        \]
+        \[
+          \mathbf{t}_A = \mathbf{t}_I,\quad
+          \mathbf{t}_B = s_n \mathbf{t}_I
+        \]
+        其中当前默认 $s_n=-1$。
+      \end{block}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+\begin{frame}{GlobalDofMap 的关键约束}
+  \begin{itemize}
+    \item 全局方程块数等于 1node 物理节点块数。
+    \item 全局未知块数必须与方程块数一致，否则直接拒绝进入求解。
+    \item 每个方程行记录一个 preferred unknown block，用于预处理器映射。
+    \item 界面不变量在求解前检查：
+      \begin{itemize}
+        \item A/B 两侧位移引用同一未知块且符号一致；
+        \item A/B 两侧面力引用同一未知块且符号按 \code{normalSign} 变化；
+        \item 历史位移/面力映射与当前步映射一致。
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{为什么需要新的块装配器}
+  \begin{itemize}
+    \item 多域装配时，同一个全局未知块可能收到来自多个子域方程的贡献。
+    \item 旧式直接追加矩阵块，不适合把重复 \((rowBlock,colBlock)\) 贡献可靠合并。
+    \item \code{MultiDomainCCSRBuilder} 用 \code{std::map} 聚合 3x3 块：
+      \[
+        A_{ij} \leftarrow A_{ij} + s B_{ij}
+      \]
+    \item 聚合完成后，再统一输出 \code{CCSRMat} 或 \code{SymCCSRMat}，供旧 \code{SparseMul} 和 \code{gmres} 使用。
+  \end{itemize}
+
+  \begin{block}{附加处理}
+    builder 会跳过零块、近零块和非有限块；近零累加结果会从 map 中删除，避免结构污染。
+  \end{block}
+\end{frame}
+
+\section{矩阵装配}
+
+\begin{frame}{当前步矩阵：外边界与界面分开处理}
+  \begin{itemize}
+    \item 域内循环只在当前域的 source 和 field 单元之间进行，避免跨域直接积分。
+    \item 外边界单元：
+      \begin{itemize}
+        \item 按原 \code{BCID} 生成未知矩阵块和已知矩阵块；
+        \item 通过 \code{GlobalDofMap} 写入全局未知或已知列。
+      \end{itemize}
+    \item 界面单元：
+      \begin{itemize}
+        \item 临时把 \code{BCID} 切为 \code{456} 生成位移未知贡献；
+        \item 临时把 \code{BCID} 切为 \code{123} 生成面力未知贡献；
+        \item 用界面共享未知量完成连续/平衡条件嵌入。
+      \end{itemize}
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{历史矩阵：保持旧递推语义}
+  \begin{itemize}
+    \item \code{MTS[step]} 聚合历史位移项对应的 $T_2 + T_1$ 贡献。
+    \item \code{MGS[step]} 聚合历史面力项对应的 $U$ 贡献。
+    \item 历史状态以 \code{globalU/globalT} 保存，界面两侧仍共享同一历史块。
+    \item 对 \code{MGS} 优先输出 \code{SymCCSRMat}；若 3x3 块不满足对称检查，则回退为 full \code{CCSRMat}。
+  \end{itemize}
+
+  \begin{block}{RHS 递推}
+    \[
+      \mathbf{b} =
+      M_{\mathrm{known}}\mathbf{x}_{\mathrm{known}}
+      + \sum_j MGS_j \mathbf{T}^{hist}_j
+      - \sum_j MTS_j \mathbf{U}^{hist}_j
+    \]
+  \end{block}
+\end{frame}
+
+\begin{frame}{局部坐标转换：界面两侧的参考一致性}
+  \begin{itemize}
+    \item 原程序在单元局部坐标中组织位移/面力，再转换到整体坐标输出。
+    \item 界面两侧法向和局部基可能不同，不能简单共用原始局部分量。
+    \item 当前实现以界面 A 侧为参考侧：
+      \begin{itemize}
+        \item A 侧使用自身局部基；
+        \item B 侧通过 \code{BuildLocalTransformFromReference} 映射到 A 侧参考基；
+        \item 解向量回写时再变换回单元本地表达。
+      \end{itemize}
+    \item 该处理让界面共享未知量具有一致的分量意义。
+  \end{itemize}
+\end{frame}
+
+\section{求解链路}
+
+\begin{frame}{多域 GMRES 主流程}
+  \begin{enumerate}
+    \item 构造 \code{GlobalDofMap}，检查界面自由度不变量。
+    \item 装配当前步未知矩阵 \code{A} 和当前步已知矩阵 \code{KnownM}。
+    \item 诊断 \code{A} 的零行、零列、非有限块和可逆对角块。
+    \item 预装配 \code{MTS[1..MaxN]} 与 \code{MGS[1..MaxN]}。
+    \item 构造映射后的 leaf preconditioner。
+    \item 每个时间步生成 RHS，调用原 \code{gmres}，并将未知量 scatter 回 \code{BoundaryValue}。
+    \item 更新 \code{MultiDomainState}，输出界面误差和验证指标。
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}{预处理器：从节点顺序映射到未知量顺序}
+  \begin{itemize}
+    \item 单域时可继续使用原 \code{GMRESPreConditioner}。
+    \item 多域时方程行和未知列不再天然一一对应，尤其界面行可能优先对应位移或面力未知块。
+    \item \code{BuildMappedLeafPreConditioner} 在 leaf 内部使用：
+      \[
+        row = inputPID,\quad col = preferredUnknownBlock(row)
+      \]
+    \item 若局部块缺失，保留统计信息，便于判断预处理器覆盖程度。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{并行装配的当前实现}
+  \begin{itemize}
+    \item 多域 GMRES 装配支持按域内 source 端划分 pthread 任务。
+    \item 每个线程拥有本地 \code{MultiDomainCCSRBuilder}，线程结束后统一 merge。
+    \item 历史矩阵和当前步非界面块均可并行生成。
+    \item 界面块仍串行装配，因为该路径需要临时改写单元 \code{BCID}，直接并行会引入共享状态风险。
+    \item 可通过 \code{DBEM\_MULTIDOMAIN\_GMRES\_PTHREAD} 控制是否关闭并行装配。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{并行正确性保护}
+  \begin{itemize}
+    \item 可开启 \code{DBEM\_MULTIDOMAIN\_GMRES\_PTHREAD\_CHECK}。
+    \item 程序会同时生成串行装配结果，与 pthread 结果做 dense 展开后的最大差异比较。
+    \item 若非零块数或数值差异超过容差，自动回退到串行矩阵。
+    \item 这使并行化成为性能路径，而不是正确性的唯一依赖。
+  \end{itemize}
+\end{frame}
+
+\section{验证输出}
+
+\begin{frame}{验证输出：不只看最终 Tecplot}
+  \begin{table}
+    \centering
+    \begin{tabular}{ll}
+      \toprule
+      文件 & 作用 \\
+      \midrule
+      \code{validation\_state.csv} & 每步每单元的域、界面类型、坐标、位移、面力 \\
+      \code{validation\_metrics.txt} & 域材料、界面误差、矩阵结构、GMRES 指标 \\
+      \code{rhs\_breakdown.csv} & known/historyG/historyT/RHS/Ax/residual 分解 \\
+      \code{residual\_probe.csv} & 每步线性残差统计 \\
+      \code{interface\_transfer\_audit.csv} & 界面两侧 $u/t$ 回写一致性审计 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+
+  \begin{block}{开关}
+    \code{DBEM\_VALIDATION\_OUTPUT=1}，\code{DBEM\_RHS\_DIAGNOSTIC=1}
+  \end{block}
+\end{frame}
+
+\begin{frame}{已覆盖的关键回归}
+  \begin{itemize}
+    \item \code{DomainCount=1}：新多域路径与旧单域矩阵路径做矩阵-向量等价自检。
+    \item 当前步矩阵：\code{MTS0} 与已知矩阵等价检查。
+    \item 历史矩阵：\code{MTS[1]}、\code{MGS[1]} 与旧路径等价检查。
+    \item 多域路径进入求解前检查矩阵结构：零行、零列、非有限块。
+    \item 每步输出 \code{A*x-rhs} 线性残差和界面最大误差。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{已有验证结论摘要}
+  \begin{itemize}
+    \item 旧文档记录：\code{DomainCount=1} 时新旧路径结果可做到完全一致。
+    \item 10 域同材料、整块边界条件的串行验证曾达到外边界误差约 $10^{-9}$ 量级。
+    \item 2 域粗模型中，界面连续和平衡误差为 0，线性残差达标；外边界差异主要体现为粗离散模型差异。
+    \item 当前代码新增了域材料验证脚本：污染全局材料行，检查求解仍使用多域材料段。
+  \end{itemize}
+
+  \begin{alertblock}{解释口径}
+    这些结论只支撑当前 1node、共形界面、\code{123/456}、GMRES-CCSR 路径；不能外推到所有边界类型或高阶单元。
+  \end{alertblock}
+\end{frame}
+
+\section{算例展示}
+
+\begin{frame}{算例 1：单域等价性回归}
+  \figplaceholder{10.4}{4.6}
+  \small
+  建议插图：旧单域路径与 \code{DomainCount=1} 多域路径的位移时程重合图，或 \code{validation\_state.csv} 最大差异柱状图。
+\end{frame}
+
+\begin{frame}{算例 2：多域长杆界面连续性}
+  \figplaceholder{10.4}{4.6}
+  \small
+  建议插图：长杆域划分示意、界面两侧 $u_A-u_B$ 和 $t_B-s_n t_A$ 随时间的最大值曲线。
+\end{frame}
+
+\begin{frame}{算例 3：分段材料使用验证}
+  \figplaceholder{10.4}{4.6}
+  \small
+  建议插图：不同域材料参数与波速表、污染全局材料前后的端部位移时程对比、解析基准误差曲线。
+\end{frame}
+
+\begin{frame}{算例 4：矩阵与 GMRES 性能指标}
+  \figplaceholder{10.4}{4.6}
+  \small
+  建议插图：\code{MTS0} 非零块数、历史矩阵平均块数、矩阵装配时间、GMRES 时间和迭代次数统计。
+\end{frame}
+
+\section{总结}
+
+\begin{frame}{阶段性成果}
+  \begin{itemize}
+    \item 建立了独立的多域模型层，不再把多域逻辑散落到旧单域主流程中。
+    \item 完成了界面共享自由度设计，使位移连续和面力平衡在未知量映射层自动满足。
+    \item 完成了支持重复块累加的 CCSR builder，解决多域全局装配的核心数据结构问题。
+    \item GMRES 求解链路已能使用多域矩阵、映射预处理器、历史状态和验证输出完成时间步推进。
+    \item 并行装配已接入非界面块，并带有串行对照回退机制。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{当前限制}
+  \begin{itemize}
+    \item 只覆盖 1node 常值单元，界面节点映射目前是退化映射。
+    \item 多域边界条件只支持 \code{123/456}，混合方向边界条件尚未接入。
+    \item 界面块装配仍串行，性能瓶颈会随界面数量增加而变明显。
+    \item 多域 GMRES 暂不支持 batch boundary mode。
+    \item 分段材料已有程序链路和验证脚本，但仍需要系统算例支撑定量结论。
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{下一步工作}
+  \begin{enumerate}
+    \item 把 10 域同材料长杆回归固定为自动化基准，保留误差阈值和指标输出。
+    \item 系统补充分段材料算例：材料跳变、波速变化、界面反射/透射响应。
+    \item 推进混合方向 \code{BCID} 支持，使自由度映射从整块扩展到分量级。
+    \item 移除界面装配中的共享 \code{BCID} 临时改写，为界面块并行化做准备。
+    \item 将 1node 映射推广到多局部节点界面映射，服务后续高阶/多节点单元。
+  \end{enumerate}
+\end{frame}
+
+\begin{frame}
+  \centering
+  \Huge 谢谢
+\end{frame}
+
+\end{document}

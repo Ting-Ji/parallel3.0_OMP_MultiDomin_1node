@@ -931,6 +931,11 @@ int main()
 	//	return -1;
 	//}
 
+	if (!BuildMultiDomainModel(MultiDomainConfig, EleNum, EleNum, E, v, Rou, dt, Beta, AveEleSize, MultiDomain))
+	{
+		FreeBatchBoundaryFiles(BatchBoundaryFiles, BatchBoundaryCaseCount);
+		return -1;
+	}
 	printf("Element Size: %lf\n\n", AveEleSize);
 	fprintf_s(logfile, "Element Size: %lf\n\n", AveEleSize);
 	printf("dt: %2.15lf\n\n", dt);
@@ -943,11 +948,6 @@ int main()
 	fprintf(dtpf, "%2.15lf", dt);
 	fclose(dtpf);
 
-	if (!BuildMultiDomainModel(MultiDomainConfig, EleNum, EleNum, E, v, Rou, dt, MultiDomain))
-	{
-		FreeBatchBoundaryFiles(BatchBoundaryFiles, BatchBoundaryCaseCount);
-		return -1;
-	}
 	if (MultiDomain.IsActive())
 	{
 		MultiDomain.PrintSummary(stdout);

@@ -45,6 +45,17 @@ static long g_validationMatrixDiagonalBlocks = 0;
 static long g_validationMatrixInvertibleDiagonalBlocks = 0;
 static int g_validationInterfaceDofInvariantValid = 0;
 static long g_validationInterfaceDofInvariantFailures = 0;
+static int g_validationMultiRateTimeMode = 0;
+static double g_validationMacroDt = 0.0;
+static double g_validationBetaLimit = 0.0;
+static double g_validationAveElementSize = 0.0;
+static long g_validationMaxSubstepsPerMacro = 0;
+static std::vector<long> g_validationDomainSubsteps;
+static std::vector<double> g_validationDomainStableDt;
+static std::vector<double> g_validationDomainLocalDt;
+static std::vector<double> g_validationDomainBetaActual;
+static std::vector<double> g_validationDomainC1;
+static std::vector<double> g_validationDomainC2;
 
 static long ElementLocalNodeId(long ele, int localNode);
 static int InterfaceLocalAForB(const InterfacePair& itf, int localB);
@@ -378,6 +389,55 @@ static void WriteInterfaceTransferAuditCsv(const MultiDomainModel& model,
 	fclose(fp);
 }
 
+static void WriteMultiRateStateCsv(const MultiDomainModel& model,
+	DSquareElement* elements,
+	BoundaryValue& stepBd,
+	long macroStep)
+{
+	if (!MultiDomainValidationOutputEnabled() || !elements || !model.IsActive())
+		return;
+	FILE* fp = OpenDiagnosticCsv("output\\validation_multirate_state.csv",
+		"macroStep,domain,localStep,time,nodeId,element,surfaceType,bcid,x,y,z,ux,uy,uz,tx,ty,tz");
+	if (!fp)
+		return;
+	double time = model.macroDt * (double)macroStep;
+	for (size_t d = 0; d < model.domains.size(); ++d)
+	{
+		const Domain& domain = model.domains[d];
+		long localStep = macroStep * (domain.substeps > 0 ? domain.substeps : 1);
+		for (size_t i = 0; i < domain.elementIds.size(); ++i)
+		{
+			long ele = domain.elementIds[i];
+			for (int localNode = 0; localNode < 1; ++localNode)
+			{
+				long nodeId = elements[ele].m_nodeID[localNode];
+				long base = nodeId * 3;
+				Point& pt = elements[ele].m_nodelist[nodeId];
+				fprintf(fp,
+					"%ld,%d,%ld,%.17g,%ld,%ld,%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
+					macroStep,
+					domain.id,
+					localStep,
+					time,
+					nodeId,
+					ele,
+					elements[ele].SurfaceType,
+					elements[ele].BCID,
+					pt.pt[0],
+					pt.pt[1],
+					pt.pt[2],
+					stepBd.lu.b[base + 0],
+					stepBd.lu.b[base + 1],
+					stepBd.lu.b[base + 2],
+					stepBd.lt.b[base + 0],
+					stepBd.lt.b[base + 1],
+					stepBd.lt.b[base + 2]);
+			}
+		}
+	}
+	fclose(fp);
+}
+
 static int SameBlockAndSign(const VariableRef& a, const VariableRef& b, double signScale)
 {
 	return a.globalBlock == b.globalBlock &&
@@ -413,6 +473,23 @@ void WriteMultiDomainValidationMetrics(FILE* fp)
 	fprintf(fp, "MultiDomainMatrixInvertibleDiagonalBlocks=%ld\n", g_validationMatrixInvertibleDiagonalBlocks);
 	fprintf(fp, "MultiDomainInterfaceDofInvariantValid=%d\n", g_validationInterfaceDofInvariantValid);
 	fprintf(fp, "MultiDomainInterfaceDofInvariantFailures=%ld\n", g_validationInterfaceDofInvariantFailures);
+	fprintf(fp, "MultiRateTimeMode=%d\n", g_validationMultiRateTimeMode);
+	fprintf(fp, "MultiRateMacroDt=%.17g\n", g_validationMacroDt);
+	fprintf(fp, "MultiRateBetaLimit=%.17g\n", g_validationBetaLimit);
+	fprintf(fp, "MultiRateAveElementSize=%.17g\n", g_validationAveElementSize);
+	fprintf(fp, "MultiRateMaxSubstepsPerMacro=%ld\n", g_validationMaxSubstepsPerMacro);
+	for (size_t i = 0; i < g_validationDomainSubsteps.size(); ++i)
+	{
+		fprintf(fp,
+			"MultiRateDomain[%ld]=substeps %ld stableDt %.17g localDt %.17g betaActual %.17g C1 %.17g C2 %.17g\n",
+			(long)i,
+			g_validationDomainSubsteps[i],
+			g_validationDomainStableDt[i],
+			g_validationDomainLocalDt[i],
+			g_validationDomainBetaActual[i],
+			g_validationDomainC1[i],
+			g_validationDomainC2[i]);
+	}
 }
 
 static int IsZeroBlock9(const double block9[9])
@@ -578,7 +655,14 @@ const DynaMat& DomainMaterialContext::Get(int domainId) const
 }
 
 MultiDomainModel::MultiDomainModel()
-	: enabled(false), elementCount(0), nodeCount(0)
+	: enabled(false),
+	elementCount(0),
+	nodeCount(0),
+	multiRateTimeMode(0),
+	betaLimit(0.0),
+	macroDt(0.0),
+	aveElementSize(0.0),
+	maxSubstepsPerMacro(64)
 {
 }
 
@@ -598,11 +682,17 @@ void MultiDomainModel::PrintSummary(FILE* fp) const
 	fprintf(out, "MultiDomain enabled = %d\n", enabled ? 1 : 0);
 	fprintf(out, "DomainCount = %d\n", DomainCount());
 	fprintf(out, "InterfaceCount = %ld\n", (long)interfaces.size());
+	fprintf(out, "MultiRateTimeMode = %d macroDt=%lf betaLimit=%lf aveElementSize=%lf maxSubstepsPerMacro=%ld\n",
+		multiRateTimeMode,
+		macroDt,
+		betaLimit,
+		aveElementSize,
+		maxSubstepsPerMacro);
 	for (size_t i = 0; i < domains.size(); ++i)
 	{
 		const Domain& d = domains[i];
 		fprintf(out,
-			"Domain %d: eleBegin=%ld eleCount=%ld nodeBegin=%ld nodeCount=%ld boundaryNodes=%ld C1=%lf C2=%lf C1Dt=%lf C2Dt=%lf\n",
+			"Domain %d: eleBegin=%ld eleCount=%ld nodeBegin=%ld nodeCount=%ld boundaryNodes=%ld C1=%lf C2=%lf C1Dt=%lf C2Dt=%lf stableDt=%lf localDt=%lf substeps=%ld betaActual=%lf\n",
 			d.id,
 			d.eleBegin,
 			d.eleCount,
@@ -612,7 +702,11 @@ void MultiDomainModel::PrintSummary(FILE* fp) const
 			d.mat.C1,
 			d.mat.C2,
 			d.mat.C1Dt,
-			d.mat.C2Dt);
+			d.mat.C2Dt,
+			d.stableDt,
+			d.localDt,
+			d.substeps,
+			d.betaActual);
 	}
 	for (size_t i = 0; i < interfaces.size(); ++i)
 	{
@@ -1367,13 +1461,18 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 	double defaultE,
 	double defaultV,
 	double defaultRou,
-	double dt,
+	double& dt,
+	double beta,
+	double aveElementSize,
 	MultiDomainModel& model)
 {
 	model = MultiDomainModel();
 	model.enabled = config.enabled;
 	model.elementCount = eleNum;
 	model.nodeCount = nodeNum;
+	model.betaLimit = beta;
+	model.aveElementSize = aveElementSize;
+	model.maxSubstepsPerMacro = 64;
 
 	int domainCount = config.enabled ? config.domainCount : 1;
 	model.domains.resize((size_t)domainCount);
@@ -1387,6 +1486,7 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 	}
 
 	std::vector<DomainMaterialInput> mats((size_t)domainCount);
+	std::vector<int> hasDomainMat((size_t)domainCount, 0);
 	for (int i = 0; i < domainCount; ++i)
 	{
 		mats[(size_t)i].id = i;
@@ -1407,7 +1507,58 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 			}
 			mats[(size_t)id] = config.materials[i];
 			mats[(size_t)id].id = id;
+			hasDomainMat[(size_t)id] = 1;
 		}
+		for (int d = 0; d < domainCount; ++d)
+		{
+			if (!hasDomainMat[(size_t)d])
+			{
+				printf("MultiDomain time grid failed: missing material row for domain %d.\n", d);
+				return 0;
+			}
+		}
+	}
+
+	std::vector<double> c1Values((size_t)domainCount, 0.0);
+	std::vector<double> c2Values((size_t)domainCount, 0.0);
+	std::vector<double> stableDtValues((size_t)domainCount, dt);
+	double macroDt = dt;
+	if (config.enabled)
+	{
+		if (beta <= 0.0 || aveElementSize <= 0.0)
+		{
+			printf("MultiDomain time grid failed: beta=%lf aveElementSize=%lf.\n", beta, aveElementSize);
+			return 0;
+		}
+		macroDt = 0.0;
+		for (int d = 0; d < domainCount; ++d)
+		{
+			double G = mats[(size_t)d].E / 2.0 / (1.0 + mats[(size_t)d].v);
+			DynaMat mat = BuildDynaMat(mats[(size_t)d].v, G, mats[(size_t)d].Rou, 1.0);
+			c1Values[(size_t)d] = mat.C1;
+			c2Values[(size_t)d] = mat.C2;
+			if (mat.C1 <= 0.0)
+			{
+				printf("MultiDomain time grid failed: invalid C1 for domain %d.\n", d);
+				return 0;
+			}
+			stableDtValues[(size_t)d] = beta * aveElementSize / mat.C1;
+			if (stableDtValues[(size_t)d] > macroDt)
+				macroDt = stableDtValues[(size_t)d];
+		}
+		if (macroDt <= 0.0)
+		{
+			printf("MultiDomain time grid failed: invalid macroDt.\n");
+			return 0;
+		}
+		dt = macroDt;
+		model.multiRateTimeMode = 1;
+		model.macroDt = macroDt;
+	}
+	else
+	{
+		model.multiRateTimeMode = 0;
+		model.macroDt = dt;
 	}
 
 	long eleBegin = 0;
@@ -1424,7 +1575,41 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 		domain.nodeBegin = eleBegin;
 		domain.nodeCount = eleCount;
 		double G = mats[(size_t)d].E / 2.0 / (1.0 + mats[(size_t)d].v);
-		domain.mat = BuildDynaMat(mats[(size_t)d].v, G, mats[(size_t)d].Rou, dt);
+		double localDt = dt;
+		long substeps = 1;
+		if (config.enabled)
+		{
+			substeps = (long)ceil(model.macroDt / stableDtValues[(size_t)d] - 1.0e-12);
+			if (substeps < 1)
+				substeps = 1;
+			if (substeps > model.maxSubstepsPerMacro)
+			{
+				printf("MultiDomain time grid failed: domain %d requires substeps=%ld > maxSubstepsPerMacro=%ld.\n",
+					d, substeps, model.maxSubstepsPerMacro);
+				return 0;
+			}
+			localDt = model.macroDt / (double)substeps;
+		}
+		domain.stableDt = config.enabled ? stableDtValues[(size_t)d] : dt;
+		domain.localDt = localDt;
+		domain.substeps = substeps;
+		domain.c1 = config.enabled ? c1Values[(size_t)d] : 0.0;
+		domain.c2 = config.enabled ? c2Values[(size_t)d] : 0.0;
+		domain.betaActual = (aveElementSize > 0.0 && domain.c1 > 0.0)
+			? domain.c1 * localDt / aveElementSize
+			: beta;
+		if (config.enabled && domain.betaActual > beta * (1.0 + 1.0e-10))
+		{
+			printf("MultiDomain time grid failed: domain %d betaActual=%lf exceeds betaLimit=%lf.\n",
+				d, domain.betaActual, beta);
+			return 0;
+		}
+		domain.mat = BuildDynaMat(mats[(size_t)d].v, G, mats[(size_t)d].Rou, localDt);
+		if (!config.enabled)
+		{
+			domain.c1 = domain.mat.C1;
+			domain.c2 = domain.mat.C2;
+		}
 		model.materialContext.mats[(size_t)d] = domain.mat;
 		for (long e = 0; e < eleCount; ++e)
 		{
@@ -2326,6 +2511,12 @@ int AssembleMultiDomainStep0(DSquareElement* elements,
 	return 1;
 }
 
+static long MultiRateLocalHistoryStep(const Domain& domain, long macroStep)
+{
+	long substeps = domain.substeps > 0 ? domain.substeps : 1;
+	return macroStep * substeps;
+}
+
 int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 	const MultiDomainModel& model,
 	const GlobalDofMap& dofMap,
@@ -2342,6 +2533,7 @@ int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 	for (size_t d = 0; d < model.domains.size(); ++d)
 	{
 		const Domain& domain = model.domains[d];
+		long localStep = MultiRateLocalHistoryStep(domain, step);
 		for (size_t si = 0; si < domain.elementIds.size(); ++si)
 		{
 			long sourceEle = domain.elementIds[si];
@@ -2360,13 +2552,13 @@ int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 					{
 						long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
 						VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
-						if (ComputeT2Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+						if (ComputeT2Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, localStep, block9))
 							mtsBuilder.AddBlock(row, uRef.globalBlock, uRef.sign, block9);
-						if (ComputeT1Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+						if (ComputeT1Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, localStep, block9))
 							mtsBuilder.AddBlock(row, uRef.globalBlock, uRef.sign, block9);
 
 						VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
-						if (ComputeUBlock(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+						if (ComputeUBlock(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, localStep, block9))
 							mgsBuilder.AddBlock(row, tRef.globalBlock, tRef.sign, block9);
 					}
 				}
@@ -2717,7 +2909,8 @@ static int AssembleMultiDomainHistoryStepPthread(DSquareElement* elements,
 	for (size_t d = 0; d < model.domains.size(); ++d)
 	{
 		const Domain& domain = model.domains[d];
-		if (!AssembleMultiDomainHistoryDomainPthread(elements, dofMap, domain, step, requestedThreads,
+		long localStep = MultiRateLocalHistoryStep(domain, step);
+		if (!AssembleMultiDomainHistoryDomainPthread(elements, dofMap, domain, localStep, requestedThreads,
 			mtsBuilder, mgsBuilder))
 		{
 			printf("MultiDomain History pthread assembly failed at step=%ld; falling back to serial multi-domain assembly.\n", step);
@@ -3469,6 +3662,31 @@ static int TryUsePreconditionerColumn(const CCSRMat& matrix,
 	return 1;
 }
 
+static void CaptureMultiRateValidationMetrics(const MultiDomainModel& model)
+{
+	g_validationMultiRateTimeMode = model.multiRateTimeMode;
+	g_validationMacroDt = model.macroDt;
+	g_validationBetaLimit = model.betaLimit;
+	g_validationAveElementSize = model.aveElementSize;
+	g_validationMaxSubstepsPerMacro = model.maxSubstepsPerMacro;
+	g_validationDomainSubsteps.clear();
+	g_validationDomainStableDt.clear();
+	g_validationDomainLocalDt.clear();
+	g_validationDomainBetaActual.clear();
+	g_validationDomainC1.clear();
+	g_validationDomainC2.clear();
+	for (size_t i = 0; i < model.domains.size(); ++i)
+	{
+		const Domain& d = model.domains[i];
+		g_validationDomainSubsteps.push_back(d.substeps);
+		g_validationDomainStableDt.push_back(d.stableDt);
+		g_validationDomainLocalDt.push_back(d.localDt);
+		g_validationDomainBetaActual.push_back(d.betaActual);
+		g_validationDomainC1.push_back(d.c1);
+		g_validationDomainC2.push_back(d.c2);
+	}
+}
+
 
 static void AssignCCSRBlockToLocalPreconditioner(const CCSRMat& matrix,
 	long row,
@@ -3709,6 +3927,18 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	g_validationMatrixInvertibleDiagonalBlocks = 0;
 	g_validationInterfaceDofInvariantValid = 0;
 	g_validationInterfaceDofInvariantFailures = 0;
+	g_validationMultiRateTimeMode = 0;
+	g_validationMacroDt = 0.0;
+	g_validationBetaLimit = 0.0;
+	g_validationAveElementSize = 0.0;
+	g_validationMaxSubstepsPerMacro = 0;
+	g_validationDomainSubsteps.clear();
+	g_validationDomainStableDt.clear();
+	g_validationDomainLocalDt.clear();
+	g_validationDomainBetaActual.clear();
+	g_validationDomainC1.clear();
+	g_validationDomainC2.clear();
+	CaptureMultiRateValidationMetrics(model);
 
 	GlobalDofMap dofMap;
 	if (!dofMap.Build(model, elements, model.elementCount))
@@ -3724,20 +3954,22 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	}
 
 	long MaxN = NStep;
-	double minC2Dt = (std::numeric_limits<double>::max)();
+	double minC2MacroDt = (std::numeric_limits<double>::max)();
 	for (size_t d = 0; d < model.domains.size(); ++d)
 	{
-		if (model.domains[d].mat.C2Dt > 0.0 && model.domains[d].mat.C2Dt < minC2Dt)
-			minC2Dt = model.domains[d].mat.C2Dt;
+		long substeps = model.domains[d].substeps > 0 ? model.domains[d].substeps : 1;
+		double c2MacroDt = model.domains[d].mat.C2Dt * (double)substeps;
+		if (c2MacroDt > 0.0 && c2MacroDt < minC2MacroDt)
+			minC2MacroDt = c2MacroDt;
 	}
-	if (minC2Dt == (std::numeric_limits<double>::max)())
+	if (minC2MacroDt == (std::numeric_limits<double>::max)())
 	{
-		printf("MultiDomain MaxN failed: no valid domain C2Dt.\n");
+		printf("MultiDomain MaxN failed: no valid domain macro C2Dt.\n");
 		return -1;
 	}
 	for (long i = 0; i <= NStep; ++i)
 	{
-		if (minC2Dt * i > MaxLength)
+		if (minC2MacroDt * i > MaxLength)
 		{
 			MaxN = i;
 			break;
@@ -3828,6 +4060,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	bd[0].Convert(elements, model.elementCount);
 	bd[0].AllLocToAbs(model.nodeCount, DSquareElement::m_transmat);
 	BuildPhysicalStateFromBoundary(dofMap, model, elements, bd[0], states[0]);
+	WriteMultiRateStateCsv(model, elements, bd[0], 0);
 
 	Wvector rhs(3 * dofMap.equationBlockCount, 0);
 	Wvector x0(3 * dofMap.unknownBlockCount, 0);
@@ -3897,6 +4130,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		bd[step].AllLocToAbs(model.nodeCount, DSquareElement::m_transmat);
 		BuildPhysicalStateFromBoundary(dofMap, model, elements, bd[step], states[(size_t)step]);
 		WriteInterfaceTransferAuditCsv(model, elements, bd[step], step);
+		WriteMultiRateStateCsv(model, elements, bd[step], step);
 		PrintInterfaceError(dofMap, model, elements, bd[step], step);
 	}
 

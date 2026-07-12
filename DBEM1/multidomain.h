@@ -14,6 +14,12 @@
 struct Domain {
 	int id;
 	DynaMat mat;
+	double stableDt;
+	double localDt;
+	double betaActual;
+	double c1;
+	double c2;
+	long substeps;
 	long eleBegin;
 	long eleCount;
 	long nodeBegin;
@@ -81,6 +87,11 @@ public:
 	DomainMaterialContext materialContext;
 	long elementCount;
 	long nodeCount;
+	int multiRateTimeMode;
+	double betaLimit;
+	double macroDt;
+	double aveElementSize;
+	long maxSubstepsPerMacro;
 
 	MultiDomainModel();
 
@@ -175,7 +186,9 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 	double defaultE,
 	double defaultV,
 	double defaultRou,
-	double dt,
+	double& dt,
+	double beta,
+	double aveElementSize,
 	MultiDomainModel& model);
 void ApplyMultiDomainModelToElements(const MultiDomainModel& model, DSquareElement* elements, long eleNum);
 int ResolveMultiDomainInterfaceNodeMaps(MultiDomainModel& model, const Point* nodeList, long nodeNum);

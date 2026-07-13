@@ -280,10 +280,13 @@ static int ReadBoundaryBinary(const char* filename, BoundaryValue* bd, int* bdid
 				printf("Invalid boundary value section in %s\n", filename);
 				return 0;
 			}
-			long j3 = 3 * j;
-			bd[i].lu.b[j3 + 0] = tbd[0];
-			bd[i].lu.b[j3 + 1] = tbd[1];
-			bd[i].lu.b[j3 + 2] = tbd[2];
+				for (long k = 0; k < 8; ++k)
+				{
+					long j3 = 3 * (j * 8 + k);
+					bd[i].lu.b[j3 + 0] = tbd[0];
+					bd[i].lu.b[j3 + 1] = tbd[1];
+					bd[i].lu.b[j3 + 2] = tbd[2];
+				}
 		}
 	}
 
@@ -333,10 +336,13 @@ static int ReadBoundaryValuesFile(const char* filename, BoundaryValue* bd, int* 
 				printf("Invalid boundary value section in %s\n", filename);
 				return 0;
 			}
-			long j3 = 3 * j;
-			bd[i].lu.b[j3 + 0] = tbd[0];
-			bd[i].lu.b[j3 + 1] = tbd[1];
-			bd[i].lu.b[j3 + 2] = tbd[2];
+				for (long k = 0; k < 8; ++k)
+				{
+					long j3 = 3 * (j * 8 + k);
+					bd[i].lu.b[j3 + 0] = tbd[0];
+					bd[i].lu.b[j3 + 1] = tbd[1];
+					bd[i].lu.b[j3 + 2] = tbd[2];
+				}
 		}
 	}
 
@@ -456,11 +462,11 @@ static void WriteValidationOutputs(DSquareElement* elements,
 			for (long ele = 0; ele < eleCount; ++ele)
 			{
 				int bcid = bdid ? bdid[ele] : elements[ele].BCID;
-				for (int localNode = 0; localNode < 1; ++localNode)
-				{
-					long nodeId = elements[ele].m_nodeID[0];
-					long base = nodeId * 3;
-					Point& pt = elements[ele].m_nodelist[nodeId];
+					for (int localNode = 0; localNode < 8; ++localNode)
+					{
+						long nodeId = elements[ele].m_nodeID[localNode];
+						long base = nodeId * 3;
+						Point& pt = elements[ele].m_nodelist[nodeId];
 					fprintf(state,
 						"%ld,%ld,%d,%ld,%d,%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
 						step,
@@ -503,7 +509,7 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	fprintf(metrics, "NStep=%ld\n", NStep);
 	fprintf(metrics, "Dt=%.17g\n", dt);
 	fprintf(metrics, "ElementCount=%ld\n", eleCount);
-	fprintf(metrics, "NodeCount=%ld\n", eleCount);
+		fprintf(metrics, "NodeCount=%ld\n", eleCount * 8);
 	fprintf(metrics, "MultiDomainActive=%d\n", model.IsActive() ? 1 : 0);
 	fprintf(metrics, "DomainCount=%d\n", model.DomainCount());
 	fprintf(metrics, "InterfaceCount=%ld\n", (long)model.interfaces.size());
@@ -529,12 +535,15 @@ static void WriteValidationOutputs(DSquareElement* elements,
 		{
 			const InterfacePair& itf = model.interfaces[i];
 			int tSignB = itf.normalSign == 0 ? -1 : itf.normalSign;
-			for (int localNode = 0; localNode < 1; ++localNode)
-			{
-				long a = itf.eleA * 3;
-				long b = itf.eleB * 3;
-				for (int k = 0; k < 3; ++k)
+				for (int localNode = 0; localNode < 8; ++localNode)
 				{
+					int localB = itf.localBForA[localNode];
+					if (localB < 0 || localB >= 8)
+						localB = localNode;
+					long a = (itf.eleA * 8 + localNode) * 3;
+					long b = (itf.eleB * 8 + localB) * 3;
+					for (int k = 0; k < 3; ++k)
+					{
 					double du = fabs(bdValue[step].lu.b[a + k] - bdValue[step].lu.b[b + k]);
 					double tb = fabs(bdValue[step].lt.b[b + k] - (double)tSignB * bdValue[step].lt.b[a + k]);
 					if (du > maxU)
@@ -943,7 +952,7 @@ int main()
 	fprintf(dtpf, "%2.15lf", dt);
 	fclose(dtpf);
 
-	if (!BuildMultiDomainModel(MultiDomainConfig, EleNum, EleNum, E, v, Rou, dt, MultiDomain))
+	if (!BuildMultiDomainModel(MultiDomainConfig, EleNum, EleNum * 8, E, v, Rou, dt, MultiDomain))
 	{
 		FreeBatchBoundaryFiles(BatchBoundaryFiles, BatchBoundaryCaseCount);
 		return -1;
@@ -1013,7 +1022,7 @@ int main()
 
 	bd = new BoundaryValue[NStep + 1];
 	for (i = 0; i <= NStep; ++i)
-		bd[i].init(EleNum); // ????????????????
+		bd[i].init(EleNum * 8); // 物理节点边界条件变量初始化
 
 	double tbd[3];
 	long j24, k3;
@@ -1074,10 +1083,14 @@ int main()
 				fscanf_s(input, "%lf", &tbd[0]);
 				fscanf_s(input, "%lf", &tbd[1]);
 				fscanf_s(input, "%lf", &tbd[2]);
-				j24 = 3 * j;
-				bd[i].lu.b[j24 + 0] = tbd[0];
-				bd[i].lu.b[j24 + 1] = tbd[1];
-				bd[i].lu.b[j24 + 2] = tbd[2];
+				j24 = 24 * j;
+				for (long k = 0; k < 8; ++k)
+				{
+					k3 = j24 + 3 * k;
+					bd[i].lu.b[k3 + 0] = tbd[0];
+					bd[i].lu.b[k3 + 1] = tbd[1];
+					bd[i].lu.b[k3 + 2] = tbd[2];
+				}
 			}
 		}
 		fclose(TIMEDATE);
@@ -1298,7 +1311,7 @@ int main()
 
 		//tecplot
 		for(i=0;i<=NStep;++i)
-			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile_1node").c_str(),amplitude);
+			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile").c_str(),amplitude);
 
 
 		// ------输出选定节点的位移/面力随时间的变化信息--------
@@ -1413,14 +1426,29 @@ int GetNodeInfo(Point* m_pointlist, Point* &m_NodeList, long** m_ElePID, long** 
 
 	double gap = DSquareElement::m_gap;
 
-	NodeNum = EleNum;
+	NodeNum = EleNum * 8;
 	m_NodeList = new Point[NodeNum];
 
 	#pragma omp parallel for num_threads(thread_num)
 	for (long i = 0; i < EleNum; ++i)
 	{
-		m_EleNID[i][0] = i;
-		m_DSE[i].GetFromLocal(0.0, 0.0, m_NodeList[i]);
+		m_EleNID[i][0] = i * 8 + 0;
+		m_EleNID[i][1] = i * 8 + 1;
+		m_EleNID[i][2] = i * 8 + 2;
+		m_EleNID[i][3] = i * 8 + 3;
+		m_EleNID[i][4] = i * 8 + 4;
+		m_EleNID[i][5] = i * 8 + 5;
+		m_EleNID[i][6] = i * 8 + 6;
+		m_EleNID[i][7] = i * 8 + 7;
+
+		m_DSE[i].GetFromLocal(-gap, -gap, m_NodeList[i * 8 + 0]);
+		m_DSE[i].GetFromLocal(gap, -gap, m_NodeList[i * 8 + 1]);
+		m_DSE[i].GetFromLocal(gap, gap, m_NodeList[i * 8 + 2]);
+		m_DSE[i].GetFromLocal(-gap, gap, m_NodeList[i * 8 + 3]);
+		m_DSE[i].GetFromLocal(0.0, -gap, m_NodeList[i * 8 + 4]);
+		m_DSE[i].GetFromLocal(gap, 0.0, m_NodeList[i * 8 + 5]);
+		m_DSE[i].GetFromLocal(0.0, gap, m_NodeList[i * 8 + 6]);
+		m_DSE[i].GetFromLocal(-gap, 0.0, m_NodeList[i * 8 + 7]);
 	}
 
 	return 1;
@@ -1660,7 +1688,7 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 		{
 			long displayNode = ele * 8 + localNode;
 			long geometryNode = m_ElePID[ele][localNode];
-			long physicalNode = m_DSE[ele].m_nodeID[0];
+			long physicalNode = m_DSE[ele].m_nodeID[localNode];
 			tecElePid[ele][localNode] = (int)displayNode + 1;
 			tecGeometryNode[displayNode] = geometryNode;
 			if (geometryNode >= 0 && geometryNode < PointNum)
@@ -1699,7 +1727,7 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 	{
 		for (int localNode = 0; localNode < 8; ++localNode)
 		{
-			long physicalNode = m_DSE[ele].m_nodeID[0];
+			long physicalNode = m_DSE[ele].m_nodeID[localNode];
 			if (physicalNode >= 0 && physicalNode < NodeNum)
 			{
 				absdisp[localNode][0] = bd.lu.b[3 * physicalNode + 0];
@@ -1719,7 +1747,7 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 		for (int localNode = 0; localNode < 8; ++localNode)
 		{
 			long displayNode = ele * 8 + localNode;
-			long physicalNode = m_DSE[ele].m_nodeID[0];
+			long physicalNode = m_DSE[ele].m_nodeID[localNode];
 			if (physicalNode < 0 || physicalNode >= NodeNum)
 				continue;
 			if (!m_DSE[ele].ObtainStress(DSquareElement::m_quadinfo.m_LocalCoord[localNode][0],
@@ -1906,179 +1934,18 @@ int TResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, lon
 	}
 
 	Wvector tecinput(8), tecoutput(8);
+	Wvector* nodalValues[9] = { &DispX, &DispY, &DispZ, &Stress11, &Stress22, &Stress33, &Stress12, &Stress13, &Stress23 };
 
 	for (i = 0; i < EleNum; ++i)
 	{
-		tecinput[1] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = DispX[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][0] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][0] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][0] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][0] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][0] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][0] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][0] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][0] += tecoutput.b[7];
-
-		tecinput[1] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = DispY[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][1] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][1] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][1] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][1] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][1] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][1] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][1] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][1] += tecoutput.b[7];
-
-		tecinput[1] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = DispZ[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][2] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][2] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][2] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][2] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][2] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][2] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][2] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][2] += tecoutput.b[7];
-
-		tecinput[1] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = Stress11[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][3] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][3] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][3] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][3] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][3] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][3] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][3] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][3] += tecoutput.b[7];
-
-		tecinput[1] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = Stress22[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][4] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][4] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][4] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][4] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][4] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][4] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][4] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][4] += tecoutput.b[7];
-
-		tecinput[1] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = Stress33[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][5] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][5] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][5] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][5] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][5] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][5] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][5] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][5] += tecoutput.b[7];
-
-		tecinput[1] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = Stress12[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][6] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][6] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][6] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][6] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][6] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][6] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][6] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][6] += tecoutput.b[7];
-
-		tecinput[1] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = Stress13[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][7] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][7] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][7] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][7] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][7] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][7] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][7] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][7] += tecoutput.b[7];
-
-		tecinput[1] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[2] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[3] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[4] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[5] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[6] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[7] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		tecinput[8] = Stress23[m_DSE[i].m_nodeID[0] + 1];
-		m_DSE[i].Approximate(tecinput.b, tecoutput.b);
-
-		tecvalue[tecElePid[i][0] - 1][8] += tecoutput.b[0];
-		tecvalue[tecElePid[i][1] - 1][8] += tecoutput.b[1];
-		tecvalue[tecElePid[i][2] - 1][8] += tecoutput.b[2];
-		tecvalue[tecElePid[i][3] - 1][8] += tecoutput.b[3];
-		tecvalue[tecElePid[i][4] - 1][8] += tecoutput.b[4];
-		tecvalue[tecElePid[i][5] - 1][8] += tecoutput.b[5];
-		tecvalue[tecElePid[i][6] - 1][8] += tecoutput.b[6];
-		tecvalue[tecElePid[i][7] - 1][8] += tecoutput.b[7];
+		for (int valueId = 0; valueId < 9; ++valueId)
+		{
+			for (j = 0; j < 8; ++j)
+				tecinput[j + 1] = (*nodalValues[valueId])[m_DSE[i].m_nodeID[j] + 1];
+			m_DSE[i].Approximate(tecinput.b, tecoutput.b);
+			for (j = 0; j < 8; ++j)
+				tecvalue[tecElePid[i][j] - 1][valueId] += tecoutput.b[j];
+		}
 
 
 		// 节点所属的单元数量
@@ -2523,7 +2390,7 @@ int GetInfoFromPoint_All(Point* m_NodeList, BoundaryValue* bd, long** m_EleNID, 
 			for (itemp = 0; itemp < EleNum; itemp++)
 			{
 
-				for (jtemp = 0; jtemp < 1; jtemp++)
+				for (jtemp = 0; jtemp < 8; jtemp++)
 				{
 					tempNodeID = m_EleNID[itemp][jtemp];
 					fprintf(fp, "%20.10e %20.10e %20.10e %20.10e %20.10e %20.10e %20.10e %20.10e %20.10e\n", m_NodeList[tempNodeID].pt[0], m_NodeList[tempNodeID].pt[1], m_NodeList[tempNodeID].pt[2], bd[i].lu.b[3 * tempNodeID + 0], bd[i].lu.b[3 * tempNodeID + 1], bd[i].lu.b[3 * tempNodeID + 2], bd[i].lt.b[3 * tempNodeID + 0], bd[i].lt.b[3 * tempNodeID + 1], bd[i].lt.b[3 * tempNodeID + 2]);
@@ -2997,7 +2864,7 @@ int GetInfoFromPoint_OutPut(OutPoint* OutP, OutEle* OutE, BoundaryValue* bd, lon
 			for (itemp = 0; itemp < OutPoNum; itemp++)
 			{
 
-				//for (jtemp = 0; jtemp < 1; jtemp++)
+				//for (jtemp = 0; jtemp < 8; jtemp++)
 				//{
 				//	tempNodeID = m_EleNID[itemp][jtemp];
 				//	fprintf(fp, "%20.10e %20.10e %20.10e %20.10e %20.10e %20.10e %20.10e %20.10e %20.10e\n", m_NodeList[tempNodeID].pt[0], m_NodeList[tempNodeID].pt[1], m_NodeList[tempNodeID].pt[2], bd[i].lu.b[3 * tempNodeID + 0], bd[i].lu.b[3 * tempNodeID + 1], bd[i].lu.b[3 * tempNodeID + 2], bd[i].lt.b[3 * tempNodeID + 0], bd[i].lt.b[3 * tempNodeID + 1], bd[i].lt.b[3 * tempNodeID + 2]);
@@ -3031,4 +2898,3 @@ int GetInfoFromPoint_OutPut(OutPoint* OutP, OutEle* OutE, BoundaryValue* bd, lon
 	}
 	return 1;
 }
-

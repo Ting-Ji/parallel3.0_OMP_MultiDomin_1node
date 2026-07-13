@@ -211,10 +211,11 @@ int BoundaryValue::Convert(int bdid, long n)
 
 int BoundaryValue::Convert(DSquareElement* m_DSE, long EleNum)
 {
-	long i;
+	long i, j;
 
 	for (i = 0; i < EleNum; ++i)
-		Convert(m_DSE[i].BCID, i);
+		for (j = 0; j < 8; ++j)
+			Convert(m_DSE[i].BCID, m_DSE[i].m_nodeID[j]);
 
 	return 1;
 }
@@ -284,7 +285,7 @@ void DSquareElement::StaticGetBeInfo(long NodeNum, long EleNum, long** m_EleNID)
 
 	for (i = 0; i < EleNum; ++i)
 	{
-		for (j = 0; j < 1; ++j)
+		for (j = 0; j < 8; ++j)
 		{
 			pos = (int)m_EleNID[i][j];
 			BeEleID[pos] = i;
@@ -387,10 +388,10 @@ void DSquareElement::PhyInit(Point* nodelist, long* nodeID, int boundaryID)
 
 	BCID = boundaryID;
 	m_nodelist = nodelist;
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		m_nodeID[i] = nodeID[i];
 
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		TranslateMatrix(m_quadinfo.m_LocalCoord[i][0], m_quadinfo.m_LocalCoord[i][1], m_transmat[m_nodeID[i]]);
 
 	if (Flagproblem == 1)
@@ -405,10 +406,10 @@ void DSquareElement::PthPhyInit(Point* nodelist, long* nodeID, int boundaryID)
 
 	BCID = boundaryID;
 	m_nodelist = nodelist;
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		m_nodeID[i] = nodeID[i];
 
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		TranslateMatrix(m_quadinfo.m_LocalCoord[i][0], m_quadinfo.m_LocalCoord[i][1], m_transmat[m_nodeID[i]]);
 
 	if (Flagproblem == 1)
@@ -1007,7 +1008,7 @@ int DSquareElement::IsIn(long NodeID, int& Pos)
 	int i, flag;
 	flag = 0;
 	Pos = -1;
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 	{
 		if (m_nodeID[i] == NodeID)
 		{
@@ -2297,7 +2298,7 @@ int DSquareElement::InElementStaticTij()
 	int i, j, k, l, AreaID;
 
 	//获取8个物理点，每个物理点对应4个三角形的共8*4*SINGULARGAUSSPOINT*SINGULARGAUSSPOINT个积分点上的J、normal、R
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
@@ -2314,7 +2315,7 @@ int DSquareElement::InElementStaticTij()
 
 	coef1 = -1.0 / (8.0*pi*(1.0 - ActiveDynaMat().v));
 	coef2 = 1.0 - 2.0*ActiveDynaMat().v;
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
 				m_StaticTij[i][j][k] = 0.0;
@@ -2324,7 +2325,7 @@ int DSquareElement::InElementStaticTij()
 	//variables for assissant of FijMinusOne
 	double m_FijMinusOne[9], A[6], Jh[3], DrDs1[3], DrDs2[3];
 	double Beta;   // 对多个单元共享一个节点的情况要用到
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 	{
 		s1 = 0.0;
 		s2 = 0.0;
@@ -2396,14 +2397,14 @@ int DSquareElement::InElementStaticTij()
 
 		// 弱奇异
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (k = 0; k < SINGAUSSPOINT2; ++k)
 			{
 				GetTij(UT, m_OnEleR[i][AreaID][k], m_OnEleN[i][AreaID][k]);
 
-				for (j = 0; j < 1; ++j)// recycle for field point
+				for (j = 0; j < 8; ++j)// recycle for field point
 				{
 					if (i != j)
 					{
@@ -2452,7 +2453,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 	}
 
 	//获取8个物理点，每个物理点对应4个三角形的共8*4*SINGULARGAUSSPOINT*SINGULARGAUSSPOINT个积分点上的J、normal、R
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
@@ -2472,7 +2473,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 
 	coef1 = -1.0 / (8.0 * pi * (1.0 - ActiveDynaMat().v));
 	coef2 = 1.0 - 2.0 * ActiveDynaMat().v;
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		for (j = 0; j < 8; ++j)
 			for (k = 0; k < 9; ++k)
 				StaticTij[k] = 0.0;//m_StaticTij[i][j][k] = 0.0;
@@ -2482,7 +2483,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 	//variables for assissant of FijMinusOne
 	double m_FijMinusOne[9], A[6], Jh[3], DrDs1[3], DrDs2[3];
 	double Beta;   // 对多个单元共享一个节点的情况要用到
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 	{
 		s1 = 0.0;
 		s2 = 0.0;
@@ -2577,7 +2578,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 
 		// 弱奇异
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (k = 0; k < SINGAUSSPOINT2; ++k)
@@ -2585,7 +2586,7 @@ int DSquareElement::InElementStaticTij(double* StaticTij)
 				//GetTij(UT, m_OnEleR[i][AreaID][k], m_OnEleN[i][AreaID][k]);
 				GetTij(UT, OnEleR[AreaID][k], OnEleN[AreaID][k]);
 
-				for (j = 0; j < 1; ++j)// recycle for field point
+				for (j = 0; j < 8; ++j)// recycle for field point
 				{
 					if (i != j)
 					{
@@ -2644,7 +2645,7 @@ int DSquareElement::ConvertUnknownCoef()
 	int i, j, k, PointID;
 	for (i = 0; i < 9; ++i)
 	{
-		for (int PointID = 0; PointID < 1; ++PointID)
+		for (int PointID = 0; PointID < 8; ++PointID)
 			m_AssistCoef[PointID][i] = 0.0;
 		//m_AssistCoef[1][i] = 0.0;
 		//m_AssistCoef[2][i] = 0.0;
@@ -2658,7 +2659,7 @@ int DSquareElement::ConvertUnknownCoef()
 	{
 		case 123:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 						for (k = 0; k < 3; ++k)
@@ -2667,7 +2668,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 126:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2679,7 +2680,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 153:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2691,7 +2692,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 156:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2703,7 +2704,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 423:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2715,7 +2716,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 426:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2727,7 +2728,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 453:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2739,7 +2740,7 @@ int DSquareElement::ConvertUnknownCoef()
 		}
 		case 456:
 		{
-			for (PointID = 0; PointID < 1; ++PointID)
+			for (PointID = 0; PointID < 8; ++PointID)
 				for (i = 0; i < 3; ++i)
 					for (j = 0; j < 3; ++j)
 					{
@@ -2758,7 +2759,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	int i, j, k, PointID;
 	for (i = 0; i < 9; ++i)
 	{
-		for (int PointID = 0; PointID < 1; ++PointID)
+		for (int PointID = 0; PointID < 8; ++PointID)
 			AssistCoef[T_ID][PointID][i] = 0.0;
 		//m_AssistCoef[1][i] = 0.0;
 		//m_AssistCoef[2][i] = 0.0;
@@ -2772,7 +2773,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	{
 	case 123:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 					for (k = 0; k < 3; ++k)
@@ -2781,7 +2782,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 126:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2793,7 +2794,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 153:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2805,7 +2806,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 156:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2817,7 +2818,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 423:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2829,7 +2830,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 426:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2841,7 +2842,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 453:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2853,7 +2854,7 @@ int DSquareElement::ConvertUnknownCoef(long T_ID)
 	}
 	case 456:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2972,7 +2973,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	{
 	case 123:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 					for (k = 0; k < 3; ++k)
@@ -2981,7 +2982,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 126:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -2993,7 +2994,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 153:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3005,7 +3006,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 156:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3017,7 +3018,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 423:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3029,7 +3030,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 426:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3041,7 +3042,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 453:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3053,7 +3054,7 @@ int DSquareElement::ConvertUnknownCoefforInf()
 	}
 	case 456:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3072,7 +3073,7 @@ int DSquareElement::ConvertKnownCoef()
 	int i, j, k, PointID;
 	for (i = 0; i < 9; ++i)
 	{
-		for (int PointID = 0; PointID < 1; ++PointID)
+		for (int PointID = 0; PointID < 8; ++PointID)
 			m_AssistCoef[PointID][i] = 0.0;
 		//m_AssistCoef[1][i] = 0.0;
 		//m_AssistCoef[2][i] = 0.0;
@@ -3086,7 +3087,7 @@ int DSquareElement::ConvertKnownCoef()
 	{
 	case 456:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 					for (k = 0; k < 3; ++k)
@@ -3095,7 +3096,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 453:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3107,7 +3108,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 426:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3119,7 +3120,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 423:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3131,7 +3132,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 156:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3143,7 +3144,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 153:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3155,7 +3156,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 126:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3167,7 +3168,7 @@ int DSquareElement::ConvertKnownCoef()
 	}
 	case 123:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3283,7 +3284,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	int i, j, k, PointID;
 	for (i = 0; i < 9; ++i)
 	{
-		for (int PointID = 0; PointID < 1; ++PointID)
+		for (int PointID = 0; PointID < 8; ++PointID)
 			AssistCoef[T_ID][PointID][i] = 0.0;
 		//m_AssistCoef[1][i] = 0.0;
 		//m_AssistCoef[2][i] = 0.0;
@@ -3297,7 +3298,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	{
 	case 456:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 					for (k = 0; k < 3; ++k)
@@ -3306,7 +3307,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 453:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3318,7 +3319,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 426:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3330,7 +3331,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 423:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3342,7 +3343,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 156:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3354,7 +3355,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 153:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3366,7 +3367,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 126:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3378,7 +3379,7 @@ int DSquareElement::ConvertKnownCoef(long T_ID)
 	}
 	case 123:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3400,7 +3401,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	{
 	case 456:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 					for (k = 0; k < 3; ++k)
@@ -3409,7 +3410,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 453:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3421,7 +3422,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 426:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3433,7 +3434,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 423:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3445,7 +3446,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 156:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3457,7 +3458,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 153:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3469,7 +3470,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 126:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3481,7 +3482,7 @@ int DSquareElement::ConvertKnownCoefforInf()
 	}
 	case 123:
 	{
-		for (PointID = 0; PointID < 1; ++PointID)
+		for (PointID = 0; PointID < 8; ++PointID)
 			for (i = 0; i < 3; ++i)
 				for (j = 0; j < 3; ++j)
 				{
@@ -3555,7 +3556,7 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 		// 常速度插值方法
 			double  TT[8][9];
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3587,7 +3588,7 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3616,7 +3617,7 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3647,7 +3648,7 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3655,7 +3656,7 @@ int DSquareElement::IntUnknownCoefforInf(DSquareElement* m_elelist, long NodeID,
 				}
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3726,7 +3727,7 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 			// 常速度插值方法
 			double TT[8][9];
 			
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3758,7 +3759,7 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3787,7 +3788,7 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3816,7 +3817,7 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 				m_elelist[FieldEleID].IntDynaTijPWforInfEle(1, m_elelist[FieldEleID].m_nodelist[NodeID], 1.0, DSquareElement::ActiveDynaMat().Dt, 4);
 			}
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3824,7 +3825,7 @@ int DSquareElement::IntKnownCoefforInf(DSquareElement* m_elelist, long NodeID, l
 				}
 			}
 			
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -3932,7 +3933,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 	{
 		// 常速度插值方法
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -4196,7 +4197,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source)
 
 		if (FlagSum)
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -4269,7 +4270,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 	{
 		// 常速度插值方法 并行   做相关调整     高斯点、雅可比、法向量  —— 使用时计算
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -4533,7 +4534,7 @@ int DSquareElement::RegularIntUnknownCoef(Point& source, long T_ID)
 
 		if (FlagSum)
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -4874,7 +4875,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 	{
 		// 常速度插值方法
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -5138,7 +5139,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source)
 
 		if (FlagSum)
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5210,7 +5211,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 	{
 		// 常速度插值方法
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -5474,7 +5475,7 @@ int DSquareElement::RegularIntKnownCoef(Point& source, long T_ID)
 
 		if (FlagSum)
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5772,7 +5773,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 
 		if (BCID == 123)//Uij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5782,7 +5783,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5792,7 +5793,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5806,7 +5807,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 	{
 		// 常速度插值方法
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -5822,7 +5823,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		{
 			// G[0]
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5832,7 +5833,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5843,7 +5844,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5861,7 +5862,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 			// G[1]
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5873,7 +5874,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		{
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5885,7 +5886,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 		{
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5895,7 +5896,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5904,7 +5905,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID)
 			}
 		}
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -5930,7 +5931,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 
 		if (BCID == 123)//Uij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5940,7 +5941,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5950,7 +5951,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5964,7 +5965,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 	{
 		// 常速度插值方法
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -5980,7 +5981,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		{
 			// G[0]
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -5990,7 +5991,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		}
 		else if (BCID == 456) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6001,7 +6002,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6019,7 +6020,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 			// G[1]
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt,T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6031,7 +6032,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		{
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6043,7 +6044,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 		{
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6053,7 +6054,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6062,7 +6063,7 @@ int DSquareElement::InElementIntUnknownCoef(int sourceID, long T_ID)
 			}
 		}
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -6209,7 +6210,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 
 		if (BCID == 456)//Uij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6219,7 +6220,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6229,7 +6230,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6242,7 +6243,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 	else
 	{
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -6258,7 +6259,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		{
 			// G[0]
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6268,7 +6269,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6279,7 +6280,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6297,7 +6298,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 			// G[1]
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6309,7 +6310,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		{
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6321,7 +6322,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 		{
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6331,7 +6332,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6340,7 +6341,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID)
 			}
 		}
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -6483,7 +6484,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 
 		if (BCID == 456)//Uij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6493,7 +6494,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6503,7 +6504,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6516,7 +6517,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 	else
 	{
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{
@@ -6532,7 +6533,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		{
 			// G[0]
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6542,7 +6543,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		}
 		else if (BCID == 123) // Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6553,7 +6554,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		}
 		else // both Uij and Tij
 		{
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6573,7 +6574,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6585,7 +6586,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		{
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6597,7 +6598,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 		{
 			IntDynaUijPW(m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6607,7 +6608,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 
 			IntDynaTijPW(1, m_nodelist[m_nodeID[sourceID]], 1.0, ActiveDynaMat().Dt, T_ID);
 
-			for (i = 0; i < 1; ++i)
+			for (i = 0; i < 8; ++i)
 			{
 				for (j = 0; j < 9; ++j)
 				{
@@ -6616,7 +6617,7 @@ int DSquareElement::InElementIntKnownCoef(int sourceID, long T_ID)
 			}
 		}
 
-		for (i = 0; i < 1; ++i)
+		for (i = 0; i < 8; ++i)
 		{
 			for (j = 0; j < 9; ++j)
 			{

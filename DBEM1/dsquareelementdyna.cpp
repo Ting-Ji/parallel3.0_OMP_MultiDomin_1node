@@ -34,7 +34,7 @@ int DSquareElement::InElementIntDynamic()
 			m_OnElementU1ij[i][j][8] = 0.0;
 		}
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 	{
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
@@ -58,7 +58,7 @@ int DSquareElement::InElementIntDynamic()
 
 					GetDynaUij(DU1, 0.0, ActiveDynaMat().Dt, R, RI);
 
-					for (j = 0; j < 1; ++j)// recycle for field point
+					for (j = 0; j < 8; ++j)// recycle for field point
 					{
 						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 
@@ -114,7 +114,7 @@ int DSquareElement::InElementIntDynamic()
 		}
 	}
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (k = 0; k < SINNUMPW2; ++k)
@@ -141,7 +141,7 @@ int DSquareElement::InElementIntDynamic()
 
 					GetTij(ST, SR, Nor);
 
-					for (j = 0; j < 1; ++j)// recycle for field point
+					for (j = 0; j < 8; ++j)// recycle for field point
 					{
 						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 						if (i == j)
@@ -265,7 +265,7 @@ int DSquareElement::PthInElementIntDynamic()
 			m_OnElementU1ij[i][j][8] = 0.0;
 		}
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 	{
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
@@ -289,7 +289,7 @@ int DSquareElement::PthInElementIntDynamic()
 
 					GetDynaUij(DU1, 0.0, ActiveDynaMat().Dt, R, RI);
 
-					for (j = 0; j < 1; ++j)// recycle for field point
+					for (j = 0; j < 8; ++j)// recycle for field point
 					{
 						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 
@@ -345,7 +345,7 @@ int DSquareElement::PthInElementIntDynamic()
 		}
 	}
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (k = 0; k < SINNUMPW2; ++k)
@@ -372,7 +372,7 @@ int DSquareElement::PthInElementIntDynamic()
 
 					GetTij(ST, SR, Nor);
 
-					for (j = 0; j < 1; ++j)// recycle for field point
+					for (j = 0; j < 8; ++j)// recycle for field point
 					{
 						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
 						if (i == j)
@@ -558,7 +558,7 @@ int DSquareElement::InElementIntStatic()
 	//
 	
 
-	for (i = 0; i < 1; ++i)//recycle for source point
+	for (i = 0; i < 8; ++i)//recycle for source point
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (k = 0; k < SINGAUSSPOINT2; ++k)
@@ -570,7 +570,7 @@ int DSquareElement::InElementIntStatic()
 				
 				GetStaticUij(DU1,RI);// m_OnEleR[i][AreaID][k] 
 
-				for (j = 0; j < 1; ++j)//recycle for field point
+				for (j = 0; j < 8; ++j)//recycle for field point
 				{
 					temp = m_SecInfo.m_SecVal[i][j][AreaID][k] * Jac;//m_OnEleJ[i][AreaID][k]
 					m_OnElementU1ij[i][j][0] += DU1[0] * temp;
@@ -610,7 +610,7 @@ int DSquareElement::PthInElementIntStatic(long threadID)
 	int i, j, k, l, AreaID;
 
 	//获取8个物理点，每个物理点对应4个三角形的共8*4*SINGULARGAUSSPOINT*SINGULARGAUSSPOINT个积分点上的J、normal、R
-	for (i = 0; i < 1; ++i)
+	for (i = 0; i < 8; ++i)
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
@@ -709,14 +709,14 @@ int DSquareElement::PthInElementIntStatic(long threadID)
 
 		// 弱奇异
 
-	for (i = 0; i < 1; ++i)// recycle for source point
+	for (i = 0; i < 8; ++i)// recycle for source point
 		for (AreaID = 0; AreaID < 4; ++AreaID)
 		{
 			for (k = 0; k < SINGAUSSPOINT2; ++k)
 			{
 				GetTij(UT, m_OnEleR[i][AreaID][k], m_OnEleN[i][AreaID][k]);
 
-				for (j = 0; j < 1; ++j)// recycle for field point
+				for (j = 0; j < 8; ++j)// recycle for field point
 				{
 					if (i != j)
 					{
@@ -823,9 +823,10 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, long T_ID)
 				//GetR(source, m_intptPW[i][j], R, RI);	//计算高斯积分点绝对坐标
 				GetDynaUij(UT, n, dt, R, RI);
 
-					PointID = 0;
-					JacobiPW = Jacobi(m_quadinfo.m_LPOSPW[i][j][0], m_quadinfo.m_LPOSPW[i][j][1]);
-					temp = m_quadinfo.m_PWGV[i][j] * JacobiPW;
+				JacobiPW = Jacobi(m_quadinfo.m_LPOSPW[i][j][0], m_quadinfo.m_LPOSPW[i][j][1]);
+				for (PointID = 0; PointID < 8; ++PointID)
+				{
+					temp = m_quadinfo.m_NPWGV[i][PointID][j] * JacobiPW;
 
 					AssistUij[T_ID][PointID][0] += UT[0] * temp;
 					AssistUij[T_ID][PointID][1] += UT[1] * temp;
@@ -833,6 +834,7 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, long T_ID)
 					AssistUij[T_ID][PointID][4] += UT[4] * temp;
 					AssistUij[T_ID][PointID][5] += UT[5] * temp;
 					AssistUij[T_ID][PointID][8] += UT[8] * temp;
+				}
 			}
 		}
 	}
@@ -974,9 +976,10 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, 
 				//GetR(source, m_intptPW[i][j], R, RI);
 				//GetDynaTij(typeT, UT, n, dt, R, RI, m_normalPW[i][j]);  //计算法向量
 
-					PointID = 0;
-					JacobiPW = Jacobi(m_quadinfo.m_LPOSPW[i][j][0], m_quadinfo.m_LPOSPW[i][j][1]);
-					temp = m_quadinfo.m_PWGV[i][j] * JacobiPW;
+				JacobiPW = Jacobi(m_quadinfo.m_LPOSPW[i][j][0], m_quadinfo.m_LPOSPW[i][j][1]);
+				for (PointID = 0; PointID < 8; ++PointID)
+				{
+					temp = m_quadinfo.m_NPWGV[i][PointID][j] * JacobiPW;
 					AssistTij[T_ID][PointID][0] += UT[0] * temp;
 					AssistTij[T_ID][PointID][1] += UT[1] * temp;
 					AssistTij[T_ID][PointID][2] += UT[2] * temp;
@@ -986,6 +989,7 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, 
 					AssistTij[T_ID][PointID][6] += UT[6] * temp;
 					AssistTij[T_ID][PointID][7] += UT[7] * temp;
 					AssistTij[T_ID][PointID][8] += UT[8] * temp;
+				}
 			}
 		}
 	}

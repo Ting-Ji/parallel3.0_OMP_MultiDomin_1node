@@ -14,7 +14,7 @@
 //-------------------------------------------------------------------------------------------------
 
 static const char* GMRES_CCSR_CACHE_PATH = "output\\gmres_ccsr_cache.bin";
-static const int GMRES_CCSR_CACHE_VERSION = 1;
+static const int GMRES_CCSR_CACHE_VERSION = 2;
 static const int GMRES_CACHE_MTS0 = 1;
 static const int GMRES_CACHE_MTS = 2;
 static const int GMRES_CACHE_MGS = 3;

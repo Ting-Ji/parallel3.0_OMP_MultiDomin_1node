@@ -18,7 +18,7 @@ const int SINGAUSSPOINT2 = SINGAUSSPOINT * SINGAUSSPOINT;
 // 分片积分定义常数
 const int GAUSSPOINTPW = 3;                                    // 用于分片积分
 const int GAUSSPOINTPW2 = GAUSSPOINTPW * GAUSSPOINTPW;         // GAUSSPOINTPW^2
-const int NUMPW = 6;                                          // 用于分片数量
+const int NUMPW = 12;                                          // 用于分片数量
 const int NUMPW2 = NUMPW * NUMPW;                              // NUMPW^2
 
 const int SINGAUSSPOINTPW = 3;                                          // 用于分片积分

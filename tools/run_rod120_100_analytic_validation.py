@@ -19,7 +19,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 
 CASE = "rod120_100"
@@ -41,6 +41,15 @@ class AnalyticResult:
     numeric: float
     analytic: float
     coord: Tuple[float, float, float]
+
+
+@dataclass
+class ForceDiagnostic:
+    step: int
+    time: float
+    left_reaction: float
+    right_resultant: float
+    balance: float
 
 
 def parse_args() -> argparse.Namespace:
@@ -235,42 +244,64 @@ def material_logs_match(case_dir: Path, material: Material, domain_count: int) -
 
 def compare_state(case_dir: Path, material: Material, length: float, axis_component: int) -> AnalyticResult:
     dt = read_dt(case_dir)
-    state_path = case_output_dir(case_dir) / "validation_state.csv"
-    if not state_path.exists():
-        raise RuntimeError(f"missing {state_path}")
-    component_field = ("ux", "uy", "uz")[axis_component]
-    coord_fields = ("x", "y", "z")
-    by_step: Dict[int, List[Tuple[float, Tuple[float, float, float]]]] = {}
-    max_axis_coord = None
-    with state_path.open("r", encoding="utf-8", errors="replace", newline="") as fp:
-        rows = list(csv.DictReader(fp))
-    for row in rows:
-        value = float(row[coord_fields[axis_component]])
-        max_axis_coord = value if max_axis_coord is None else max(max_axis_coord, value)
-    if max_axis_coord is None:
-        raise RuntimeError("validation_state.csv has no rows")
-    for row in rows:
-        if int(row["surfaceType"]) != 0 or int(row["bcid"]) != 456:
-            continue
-        axis_coord = float(row[coord_fields[axis_component]])
-        if abs(axis_coord - max_axis_coord) > 1.0e-8:
-            continue
-        step = int(row["step"])
-        coord = tuple(float(row[name]) for name in coord_fields)
-        by_step.setdefault(step, []).append((float(row[component_field]), coord))
-    if not by_step:
-        raise RuntimeError("no loaded-end outer rows found in validation_state.csv")
-
+    resultants_path = case_output_dir(case_dir) / "end_resultants.csv"
+    if not resultants_path.exists():
+        raise RuntimeError(f"missing {resultants_path}")
+    component_field = ("avgUx", "avgUy", "avgUz")[axis_component]
+    load_field = ("avgTx", "avgTy", "avgTz")[axis_component]
+    coord_values = [0.0, 0.0, 0.0]
+    coord_values[axis_component] = length
+    coord = tuple(coord_values)
     worst = AnalyticResult(0.0, 0.0, 0, 0.0, 0.0, 0.0, (0.0, 0.0, 0.0))
-    for step, values in sorted(by_step.items()):
-        numeric = sum(value for value, _ in values) / float(len(values))
-        coord = values[0][1]
-        expected = analytic_displacement(material, length, dt, step, 1.0)
-        diff = abs(numeric - expected)
-        rel = diff / max(abs(expected), 1.0e-12)
-        if diff > worst.max_abs:
-            worst = AnalyticResult(diff, rel, step, step * dt, numeric, expected, coord)
+    saw_right = False
+    with resultants_path.open("r", encoding="utf-8", errors="replace", newline="") as fp:
+        for row in csv.DictReader(fp):
+            if row.get("side") != "right":
+                continue
+            saw_right = True
+            step = int(row["step"])
+            numeric = float(row[component_field])
+            load = float(row[load_field])
+            time_value = float(row.get("time", step * dt))
+            expected = analytic_displacement(material, length, dt, step, load)
+            diff = abs(numeric - expected)
+            rel = diff / max(abs(expected), 1.0e-12)
+            if diff > worst.max_abs:
+                worst = AnalyticResult(diff, rel, step, time_value, numeric, expected, coord)
+    if not saw_right:
+        raise RuntimeError("end_resultants.csv has no right-end rows")
     return worst
+
+
+def read_end_force_diagnostic(case_dir: Path, axis_component: int) -> Optional[ForceDiagnostic]:
+    resultants_path = case_output_dir(case_dir) / "end_resultants.csv"
+    if not resultants_path.exists():
+        return None
+    reaction_field = ("reactionFx", "reactionFy", "reactionFz")[axis_component]
+    resultant_field = ("fx", "fy", "fz")[axis_component]
+    by_step: Dict[int, Dict[str, Dict[str, str]]] = {}
+    with resultants_path.open("r", encoding="utf-8", errors="replace", newline="") as fp:
+        for row in csv.DictReader(fp):
+            side = row.get("side")
+            if side not in ("left", "right"):
+                continue
+            step = int(row["step"])
+            by_step.setdefault(step, {})[side] = row
+    for step in sorted(by_step.keys(), reverse=True):
+        rows = by_step[step]
+        if "left" not in rows or "right" not in rows:
+            continue
+        left_reaction = float(rows["left"][reaction_field])
+        right_resultant = float(rows["right"][resultant_field])
+        time_value = float(rows["left"]["time"])
+        return ForceDiagnostic(
+            step=step,
+            time=time_value,
+            left_reaction=left_reaction,
+            right_resultant=right_resultant,
+            balance=left_reaction + right_resultant,
+        )
+    return None
 
 
 def run_case(case_dir: Path, exe: Path, timeout: int) -> subprocess.CompletedProcess[str]:
@@ -333,12 +364,21 @@ def main() -> int:
         if len({(m.e, m.nu, m.rho) for m in mats}) != 1:
             raise RuntimeError("rod120_100 analytic validation expects uniform multi-domain material")
 
-        element_count = element_count_from_bd(case_dir / "input" / f"{CASE}.bd")
         load_component, length = model_axis_and_length(case_dir / "input" / f"{CASE}.model")
         worst = compare_state(case_dir, mats[0], length, load_component)
+        force_diag = read_end_force_diagnostic(case_dir, load_component)
 
         material_ok = material_logs_match(case_dir, mats[0], domain_count)
         passed = worst.max_abs <= args.abs_tol or worst.max_rel <= args.rel_tol
+        force_report = ""
+        if force_diag is not None:
+            force_report = (
+                f"force_diag_step={force_diag.step}\n"
+                f"force_diag_time={force_diag.time:.17g}\n"
+                f"left_reaction_axis={force_diag.left_reaction:.17g}\n"
+                f"right_resultant_axis={force_diag.right_resultant:.17g}\n"
+                f"end_force_balance_axis={force_diag.balance:.17g}\n"
+            )
         report = (
             f"max_abs={worst.max_abs:.6e}\n"
             f"max_rel={worst.max_rel:.6e}\n"
@@ -348,6 +388,7 @@ def main() -> int:
             f"analytic={worst.analytic:.17g}\n"
             f"coord={worst.coord}\n"
             f"rod_axis_component={load_component}\n"
+            f"{force_report}"
             f"material_metrics_ok={int(material_ok)}\n"
             f"passed={int(passed and material_ok)}\n"
         )

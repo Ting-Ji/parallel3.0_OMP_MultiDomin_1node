@@ -2235,7 +2235,7 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, lo
 {
 	// n = 0..M-1
 
-	double R[6], RI[4], UT1[9], UT2[9], temp;
+	double R[6], RI[4], UT[9], temp;
 	int i, PointID;
 	Point intpt;
 	double JacobiT;
@@ -2261,8 +2261,7 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, lo
 		GetFromLocal(m_gnm.rp[i][0], m_gnm.rp[i][1], intpt);
 		GetR(source, intpt, R, RI);
 		Normal(m_gnm.rp[i][0], m_gnm.rp[i][1], normalT[0], normalT[1], normalT[2]);
-		Flag = GetDynaTij(1, UT1, n, dt, R, RI, normalT);
-		Flag += GetDynaTij(2, UT2, n, dt, R, RI, normalT);
+		Flag = GetDynaTij(typeT, UT, n, dt, R, RI, normalT);
 		//GetR(source, m_intpt[i], R, RI);
 		//Flag = GetDynaTij(1, UT1, n, dt, R, RI, m_normal[i]);
 		//Flag += GetDynaTij(2, UT2, n, dt, R, RI, m_normal[i]);
@@ -2274,15 +2273,15 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, lo
 				JacobiT = Jacobi(m_gnm.rp[i][0], m_gnm.rp[i][1]);
 				temp = m_quadinfo.m_NRGV[PointID][i] * JacobiT;
 				//temp = m_quadinfo.m_NRGV[PointID][i] * m_Jacobi[i];
-				AssistTij[T_ID][PointID][0] += (UT1[0] + UT2[0]) * temp;
-				AssistTij[T_ID][PointID][1] += (UT1[1] + UT2[1]) * temp;
-				AssistTij[T_ID][PointID][2] += (UT1[2] + UT2[2]) * temp;
-				AssistTij[T_ID][PointID][3] += (UT1[3] + UT2[3]) * temp;
-				AssistTij[T_ID][PointID][4] += (UT1[4] + UT2[4]) * temp;
-				AssistTij[T_ID][PointID][5] += (UT1[5] + UT2[5]) * temp;
-				AssistTij[T_ID][PointID][6] += (UT1[6] + UT2[6]) * temp;
-				AssistTij[T_ID][PointID][7] += (UT1[7] + UT2[7]) * temp;
-				AssistTij[T_ID][PointID][8] += (UT1[8] + UT2[8]) * temp;
+				AssistTij[T_ID][PointID][0] += UT[0] * temp;
+				AssistTij[T_ID][PointID][1] += UT[1] * temp;
+				AssistTij[T_ID][PointID][2] += UT[2] * temp;
+				AssistTij[T_ID][PointID][3] += UT[3] * temp;
+				AssistTij[T_ID][PointID][4] += UT[4] * temp;
+				AssistTij[T_ID][PointID][5] += UT[5] * temp;
+				AssistTij[T_ID][PointID][6] += UT[6] * temp;
+				AssistTij[T_ID][PointID][7] += UT[7] * temp;
+				AssistTij[T_ID][PointID][8] += UT[8] * temp;
 			}
 		}
 	}
@@ -2303,8 +2302,8 @@ int DSquareElement::InElementStaticTij()
 		{
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
 			{
-				s1 = m_SecInfo.m_SecConstPos[AreaID][0][j];
-				s2 = m_SecInfo.m_SecConstPos[AreaID][1][j];
+				s1 = m_SecInfo.m_SecPos[i][AreaID][0][j];
+				s2 = m_SecInfo.m_SecPos[i][AreaID][1][j];
 				m_OnEleJ[i][AreaID][j] = Jacobi(s1, s2);
 				Normal(s1, s2, m_OnEleN[i][AreaID][j][0], m_OnEleN[i][AreaID][j][1], m_OnEleN[i][AreaID][j][2]);
 				GetR(m_nodelist[m_nodeID[i]], s1, s2, m_OnEleR[i][AreaID][j]);
@@ -2327,8 +2326,8 @@ int DSquareElement::InElementStaticTij()
 	double Beta;   // 对多个单元共享一个节点的情况要用到
 	for (i = 0; i < 8; ++i)
 	{
-		s1 = 0.0;
-		s2 = 0.0;
+		s1 = m_quadinfo.m_LocalCoord[i][0];
+		s2 = m_quadinfo.m_LocalCoord[i][1];
 		GetJi0(i, Jh);
 		RDiffs1(s1, s2, DrDs1);
 		RDiffs2(s1, s2, DrDs2);
@@ -2339,7 +2338,7 @@ int DSquareElement::InElementStaticTij()
 			for (j = 0; j < SINGAUSSPOINT2; ++j)
 			{					//Tij
 				GetTij(UT, m_OnEleR[i][AreaID][j], m_OnEleN[i][AreaID][j]);
-				temp = m_SecInfo.m_SecConstVal[AreaID][j] * m_OnEleJ[i][AreaID][j];
+				temp = m_SecInfo.m_SecVal[i][i][AreaID][j] * m_OnEleJ[i][AreaID][j];
 				for (l = 0; l < 9; ++l)
 				{
 					m_StaticTij[i][i][l] += UT[l] * temp;
@@ -2351,7 +2350,7 @@ int DSquareElement::InElementStaticTij()
 		{
 			for (j = 0; j < SINGAUSSPOINT; ++j)
 			{
-				GetAi(m_SecInfo.m_ConstLinePos[AreaID][j], DrDs1, DrDs2, A);
+				GetAi(m_SecInfo.m_LinePos[i][AreaID][j], DrDs1, DrDs2, A);
 
 				GetBeta(Beta, A);
 				Beta = fabs(Beta);
@@ -2359,7 +2358,7 @@ int DSquareElement::InElementStaticTij()
 				GetFijMinusOne(m_FijMinusOne, A, Jh, coef1, coef2);
 				for (l = 0; l < SINGAUSSPOINT; ++l)
 				{
-					FVS1 = m_FValue.m_ConstFMinusOneSecVal[AreaID][l * SINGAUSSPOINT + j];  // [l][j] TEST
+					FVS1 = m_FValue.m_FMinusOneSecVal[i][AreaID][l * SINGAUSSPOINT + j];  // [l][j] TEST
 					m_StaticTij[i][i][0] -= m_FijMinusOne[0] * FVS1;
 					m_StaticTij[i][i][1] -= m_FijMinusOne[1] * FVS1;
 					m_StaticTij[i][i][2] -= m_FijMinusOne[2] * FVS1;
@@ -2372,7 +2371,7 @@ int DSquareElement::InElementStaticTij()
 				}
 
 				// 对单个节点由若干个单元共享的情况，需要用到Beta
-				FVL1 = m_FValue.m_ConstFMinusOneLineVal[AreaID][j]; // 连续单元用： + m_FValue.m_FMinusOneLineVal_2[i][AreaID][j]*log(Beta);
+				FVL1 = m_FValue.m_FMinusOneLineVal[i][AreaID][j]; // 连续单元用： + m_FValue.m_FMinusOneLineVal_2[i][AreaID][j]*log(Beta);
 				m_StaticTij[i][i][0] += m_FijMinusOne[0] * FVL1;
 				m_StaticTij[i][i][1] += m_FijMinusOne[1] * FVL1;
 				m_StaticTij[i][i][2] += m_FijMinusOne[2] * FVL1;
@@ -2408,7 +2407,7 @@ int DSquareElement::InElementStaticTij()
 				{
 					if (i != j)
 					{
-						temp = m_SecInfo.m_SecConstVal[AreaID][k] * m_OnEleJ[i][AreaID][k];
+						temp = m_SecInfo.m_SecVal[i][j][AreaID][k] * m_OnEleJ[i][AreaID][k];
 						m_StaticTij[i][j][0] += UT[0] * temp;
 						m_StaticTij[i][j][1] += UT[1] * temp;
 						m_StaticTij[i][j][2] += UT[2] * temp;

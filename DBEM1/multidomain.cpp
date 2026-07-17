@@ -127,6 +127,11 @@ static int MultiDomainPthreadCheckEnabled()
 	return EnvFlagEnabled("DBEM_MULTIDOMAIN_GMRES_PTHREAD_CHECK");
 }
 
+static int MultiDomainMatvecCheckEnabled()
+{
+	return EnvFlagEnabled("DBEM_MULTIDOMAIN_MATVEC_CHECK");
+}
+
 static FILE* OpenDiagnosticCsv(const char* path, const char* header)
 {
 	std::string actualPath = DBEMOutputPath(path);
@@ -248,6 +253,7 @@ static void WriteRhsBreakdownCsv(const char* solver,
 	long step,
 	DSquareElement* elements,
 	long eleCount,
+	const GlobalDofMap& dofMap,
 	Wvector& known,
 	Wvector& historyG,
 	Wvector& historyT,
@@ -270,13 +276,36 @@ static void WriteRhsBreakdownCsv(const char* solver,
 	long rowBlocks = total.n / 3;
 	for (long node = 0; node < rowBlocks; ++node)
 	{
-		long ele = node;
-		int localNode = 0;
-		if (ele < 0 || ele >= eleCount)
+		long ele = node / 8;
+		int localNode = (int)(node % 8);
+		if (ele < 0 || ele >= eleCount || localNode < 0 || localNode >= 8)
 			continue;
+		if (elements[ele].m_nodeID[localNode] != node)
+		{
+			int found = 0;
+			for (long candidateEle = 0; candidateEle < eleCount && !found; ++candidateEle)
+			{
+				for (int candidateLocal = 0; candidateLocal < 8; ++candidateLocal)
+				{
+					if (elements[candidateEle].m_nodeID[candidateLocal] == node)
+					{
+						ele = candidateEle;
+						localNode = candidateLocal;
+						found = 1;
+						break;
+					}
+				}
+			}
+			if (!found)
+				continue;
+		}
+		Point& pt = elements[ele].m_nodelist[node];
+		long solutionBlock = dofMap.GetPreferredUnknownBlockForRow(node);
 		for (int k = 0; k < 3; ++k)
 		{
 			long p = node * 3 + k;
+			long sp = solutionBlock * 3 + k;
+			double solutionValue = (solutionBlock >= 0 && sp >= 0 && sp < solution.n) ? solution.b[sp] : 0.0;
 			double residual = ax.b[p] - total.b[p];
 			fprintf(fp, "%s,%ld,%ld,%ld,%d,%d,%d,%d,%.17g,%.17g,%.17g,%c,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
 				solver,
@@ -287,9 +316,9 @@ static void WriteRhsBreakdownCsv(const char* solver,
 				elements[ele].DomainID,
 				elements[ele].SurfaceType,
 				elements[ele].BCID,
-				elements[ele].m_center.pt[0],
-				elements[ele].m_center.pt[1],
-				elements[ele].m_center.pt[2],
+				pt.pt[0],
+				pt.pt[1],
+				pt.pt[2],
 				comp[k],
 				known.b[p],
 				historyG.b[p],
@@ -297,7 +326,7 @@ static void WriteRhsBreakdownCsv(const char* solver,
 				total.b[p],
 				ax.b[p],
 				residual,
-				solution.b[p]);
+				solutionValue);
 		}
 	}
 	fclose(fp);
@@ -2122,29 +2151,29 @@ static void* MultiDomainHistoryThreadMain(void* rawArg)
 				for (int fieldLocalNode = 0; fieldLocalNode < 8; ++fieldLocalNode)
 				{
 					long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
-					VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
-					if (ComputeT2BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
-						arg->step, arg->threadId, block9))
-					{
-						arg->mtsBuilder->AddBlock(row, uRef.globalBlock, uRef.sign, block9);
-						++arg->blockCount;
-					}
-					if (ComputeT1BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
-						arg->step, arg->threadId, block9))
-					{
-						arg->mtsBuilder->AddBlock(row, uRef.globalBlock, uRef.sign, block9);
-						++arg->blockCount;
-					}
+						VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
+						if (ComputeT2BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
+							arg->step, arg->threadId, block9))
+						{
+							arg->mtsBuilder->AddBlock(row, uRef.globalBlock, uRef.sign, block9);
+							++arg->blockCount;
+						}
+						if (ComputeT1BlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
+							arg->step, arg->threadId, block9))
+						{
+							arg->mtsBuilder->AddBlock(row, uRef.globalBlock, uRef.sign, block9);
+							++arg->blockCount;
+						}
 
-					VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
-					if (ComputeUBlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
-						arg->step, arg->threadId, block9))
-					{
-						arg->mgsBuilder->AddBlock(row, tRef.globalBlock, tRef.sign, block9);
-						++arg->blockCount;
+						VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
+						if (ComputeUBlockCurrentMat(elements, sourceNode, fieldEle, fieldLocalNode,
+							arg->step, arg->threadId, block9))
+						{
+							arg->mgsBuilder->AddBlock(row, tRef.globalBlock, tRef.sign, block9);
+							++arg->blockCount;
+						}
 					}
 				}
-			}
 		}
 	}
 	return 0;
@@ -2431,19 +2460,19 @@ int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 					double block9[9];
 					for (int fieldLocalNode = 0; fieldLocalNode < 8; ++fieldLocalNode)
 					{
-						long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
-						VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
-						if (ComputeT2Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
-							mtsBuilder.AddBlock(row, uRef.globalBlock, uRef.sign, block9);
-						if (ComputeT1Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
-							mtsBuilder.AddBlock(row, uRef.globalBlock, uRef.sign, block9);
+							long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+							VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
+							if (ComputeT2Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+								mtsBuilder.AddBlock(row, uRef.globalBlock, uRef.sign, block9);
+							if (ComputeT1Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+								mtsBuilder.AddBlock(row, uRef.globalBlock, uRef.sign, block9);
 
-						VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
-						if (ComputeUBlock(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
-							mgsBuilder.AddBlock(row, tRef.globalBlock, tRef.sign, block9);
+							VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
+							if (ComputeUBlock(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+								mgsBuilder.AddBlock(row, tRef.globalBlock, tRef.sign, block9);
+						}
 					}
 				}
-			}
 		}
 	}
 
@@ -2844,6 +2873,288 @@ static int CompareMatVecResult(const char* name, const Wvector& reference, const
 	return CompareMatVecResultWithTolerance(name, reference, candidate, 1.0e-8, 1.0e-10);
 }
 
+static void ReadVectorBlock3(const Wvector& x, long block, double value[3])
+{
+	long base = block * 3;
+	value[0] = x.b[base + 1];
+	value[1] = x.b[base + 2];
+	value[2] = x.b[base + 3];
+}
+
+static void AddElementBlockMatvec(Wvector& out, long row, double sign, const double block9[9], const double x3[3])
+{
+	if (row < 0 || !out.b || !block9 || !x3 || sign == 0.0)
+		return;
+	long base = row * 3;
+	for (int r = 0; r < 3; ++r)
+	{
+		double value = 0.0;
+		for (int c = 0; c < 3; ++c)
+			value += block9[c * 3 + r] * x3[c];
+		out.b[base + r + 1] += sign * value;
+	}
+}
+
+static int AddStep0DirectKnownOrUnknownMatvec(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long row,
+	long sourceNode,
+	long fieldEle,
+	int fieldLocalNode,
+	long fieldNode,
+	int domainId,
+	int unknownPass,
+	long** infElePid,
+	long** elePid,
+	const Wvector& x,
+	Wvector& y)
+{
+	double block9[9];
+	int flag = unknownPass
+		? ComputeUnknown0Block(elements, model, domainId, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, block9)
+		: ComputeKnown0Block(elements, model, domainId, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, block9);
+	if (!flag)
+		return 0;
+
+	VariableRef ref;
+	if (elements[fieldEle].BCID == 123)
+		ref = unknownPass ? dofMap.GetT(domainId, fieldNode) : dofMap.GetU(domainId, fieldNode);
+	else
+		ref = unknownPass ? dofMap.GetU(domainId, fieldNode) : dofMap.GetT(domainId, fieldNode);
+	if (ref.known != (unknownPass ? false : true))
+		return 0;
+
+	double x3[3];
+	ReadVectorBlock3(x, ref.globalBlock, x3);
+	AddElementBlockMatvec(y, row, ref.sign, block9, x3);
+	return 1;
+}
+
+static void BuildStep0DirectUnknownMatvec(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long** infElePid,
+	long** elePid,
+	const Wvector& x,
+	Wvector& y)
+{
+	y = 0.0;
+	for (size_t d = 0; d < model.domains.size(); ++d)
+	{
+		const Domain& domain = model.domains[d];
+		for (size_t si = 0; si < domain.elementIds.size(); ++si)
+		{
+			long sourceEle = domain.elementIds[si];
+			for (int sourceLocalNode = 0; sourceLocalNode < 8; ++sourceLocalNode)
+			{
+				long sourceNode = elements[sourceEle].m_nodeID[sourceLocalNode];
+				long row = dofMap.GetEquationRow(domain.id, sourceNode);
+				if (row < 0)
+					continue;
+				for (size_t fj = 0; fj < domain.elementIds.size(); ++fj)
+				{
+					long fieldEle = domain.elementIds[fj];
+					int savedBCID = elements[fieldEle].BCID;
+					double block9[9];
+					for (int fieldLocalNode = 0; fieldLocalNode < 8; ++fieldLocalNode)
+					{
+						long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+						if (elements[fieldEle].SurfaceType == SurfaceInterface)
+						{
+							double transform[9];
+							double refValue[3];
+							double localValue[3];
+							GetElementLocalTransformFromInterfaceReference(model, domain.id, fieldEle, fieldLocalNode, transform);
+							{
+								ScopedBCID bcidScope(elements[fieldEle], 456);
+								if (ComputeUnknown0Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, block9))
+								{
+									VariableRef uRef = dofMap.GetU(domain.id, fieldNode);
+									ReadVectorBlock3(x, uRef.globalBlock, refValue);
+									ApplyTransform3(transform, refValue, localValue);
+									for (int k = 0; k < 3; ++k)
+										localValue[k] *= uRef.sign;
+									AddElementBlockMatvec(y, row, 1.0, block9, localValue);
+								}
+							}
+							{
+								ScopedBCID bcidScope(elements[fieldEle], 123);
+								if (ComputeUnknown0Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, infElePid, elePid, block9))
+								{
+									VariableRef tRef = dofMap.GetT(domain.id, fieldNode);
+									ReadVectorBlock3(x, tRef.globalBlock, refValue);
+									ApplyTransform3(transform, refValue, localValue);
+									for (int k = 0; k < 3; ++k)
+										localValue[k] *= tRef.sign;
+									AddElementBlockMatvec(y, row, 1.0, block9, localValue);
+								}
+							}
+						}
+						else
+						{
+							AddStep0DirectKnownOrUnknownMatvec(elements, model, dofMap, row, sourceNode,
+								fieldEle, fieldLocalNode, fieldNode, domain.id, 1, infElePid, elePid, x, y);
+						}
+					}
+					elements[fieldEle].BCID = savedBCID;
+				}
+			}
+		}
+	}
+}
+
+static void BuildStep0DirectKnownMatvec(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long** infElePid,
+	long** elePid,
+	const Wvector& x,
+	Wvector& y)
+{
+	y = 0.0;
+	for (size_t d = 0; d < model.domains.size(); ++d)
+	{
+		const Domain& domain = model.domains[d];
+		for (size_t si = 0; si < domain.elementIds.size(); ++si)
+		{
+			long sourceEle = domain.elementIds[si];
+			for (int sourceLocalNode = 0; sourceLocalNode < 8; ++sourceLocalNode)
+			{
+				long sourceNode = elements[sourceEle].m_nodeID[sourceLocalNode];
+				long row = dofMap.GetEquationRow(domain.id, sourceNode);
+				if (row < 0)
+					continue;
+				for (size_t fj = 0; fj < domain.elementIds.size(); ++fj)
+				{
+					long fieldEle = domain.elementIds[fj];
+					if (elements[fieldEle].SurfaceType == SurfaceInterface)
+						continue;
+					for (int fieldLocalNode = 0; fieldLocalNode < 8; ++fieldLocalNode)
+					{
+						long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+						AddStep0DirectKnownOrUnknownMatvec(elements, model, dofMap, row, sourceNode,
+							fieldEle, fieldLocalNode, fieldNode, domain.id, 0, infElePid, elePid, x, y);
+					}
+				}
+			}
+		}
+	}
+}
+
+static void BuildHistoryDirectMatvec(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long step,
+	int tractionHistory,
+	const Wvector& x,
+	Wvector& y)
+{
+	y = 0.0;
+	for (size_t d = 0; d < model.domains.size(); ++d)
+	{
+		const Domain& domain = model.domains[d];
+		for (size_t si = 0; si < domain.elementIds.size(); ++si)
+		{
+			long sourceEle = domain.elementIds[si];
+			for (int sourceLocalNode = 0; sourceLocalNode < 8; ++sourceLocalNode)
+			{
+				long sourceNode = elements[sourceEle].m_nodeID[sourceLocalNode];
+				long row = dofMap.GetEquationRow(domain.id, sourceNode);
+				if (row < 0)
+					continue;
+				for (size_t fj = 0; fj < domain.elementIds.size(); ++fj)
+				{
+					long fieldEle = domain.elementIds[fj];
+					double block9[9];
+					for (int fieldLocalNode = 0; fieldLocalNode < 8; ++fieldLocalNode)
+					{
+						long fieldNode = elements[fieldEle].m_nodeID[fieldLocalNode];
+						double x3[3];
+						if (tractionHistory)
+						{
+							VariableRef tRef = dofMap.GetHistoryT(domain.id, fieldNode);
+							ReadVectorBlock3(x, tRef.globalBlock, x3);
+							if (ComputeUBlock(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+								AddElementBlockMatvec(y, row, tRef.sign, block9, x3);
+						}
+						else
+						{
+							VariableRef uRef = dofMap.GetHistoryU(domain.id, fieldNode);
+							ReadVectorBlock3(x, uRef.globalBlock, x3);
+							if (ComputeT2Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+								AddElementBlockMatvec(y, row, uRef.sign, block9, x3);
+							if (ComputeT1Block(elements, model, domain.id, sourceNode, fieldEle, fieldLocalNode, step, block9))
+								AddElementBlockMatvec(y, row, uRef.sign, block9, x3);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+static int RunStep0AssemblyMatvecCheck(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long** infElePid,
+	long** elePid,
+	CCSRMat& unknownMatrix,
+	CCSRMat& knownMatrix)
+{
+	if (!MultiDomainMatvecCheckEnabled())
+		return 1;
+
+	int ok = 1;
+	Wvector xUnknown(3 * dofMap.unknownBlockCount, 0);
+	Wvector yMatrix(3 * dofMap.equationBlockCount, 0);
+	Wvector yDirect(3 * dofMap.equationBlockCount, 0);
+	FillDeterministicVector(xUnknown);
+	SparseMul(unknownMatrix, xUnknown, yMatrix);
+	BuildStep0DirectUnknownMatvec(elements, model, dofMap, infElePid, elePid, xUnknown, yDirect);
+	ok = CompareMatVecResult("MultiDomain step0 unknown direct", yDirect, yMatrix) && ok;
+
+	Wvector xKnown(3 * dofMap.knownBlockCount, 0);
+	FillDeterministicVector(xKnown);
+	SparseMul(knownMatrix, xKnown, yMatrix);
+	BuildStep0DirectKnownMatvec(elements, model, dofMap, infElePid, elePid, xKnown, yDirect);
+	ok = CompareMatVecResult("MultiDomain step0 known direct", yDirect, yMatrix) && ok;
+	return ok;
+}
+
+static int RunHistoryAssemblyMatvecCheck(DSquareElement* elements,
+	const MultiDomainModel& model,
+	const GlobalDofMap& dofMap,
+	long step,
+	CCSRMat& mtsMatrix,
+	SymCCSRMat& mgsSymMatrix,
+	CCSRMat& mgsFullMatrix,
+	int mgsUseSym)
+{
+	if (!MultiDomainMatvecCheckEnabled() || step != 1)
+		return 1;
+
+	int ok = 1;
+	Wvector yMatrix(3 * dofMap.equationBlockCount, 0);
+	Wvector yDirect(3 * dofMap.equationBlockCount, 0);
+
+	Wvector xU(3 * dofMap.historyUBlockCount, 0);
+	FillDeterministicVector(xU);
+	SparseMul(mtsMatrix, xU, yMatrix);
+	BuildHistoryDirectMatvec(elements, model, dofMap, step, 0, xU, yDirect);
+	ok = CompareMatVecResult("MultiDomain MTS[1] direct", yDirect, yMatrix) && ok;
+
+	Wvector xT(3 * dofMap.historyTBlockCount, 0);
+	FillDeterministicVector(xT);
+	if (mgsUseSym)
+		SparseMul(mgsSymMatrix, xT, yMatrix);
+	else
+		SparseMul(mgsFullMatrix, xT, yMatrix);
+	BuildHistoryDirectMatvec(elements, model, dofMap, step, 1, xT, yDirect);
+	ok = CompareMatVecResult("MultiDomain MGS[1] direct", yDirect, yMatrix) && ok;
+	return ok;
+}
+
 static void PrepareOldCCSRTemp(WmatrixCCSR& temp, long blockCount)
 {
 	temp.initial(3 * blockCount, 3 * blockCount);
@@ -3176,20 +3487,19 @@ static void ScatterUnknownToBoundary(const GlobalDofMap& dofMap,
 		{
 			long ele = domain.elementIds[i];
 			for (int localNode = 0; localNode < 8; ++localNode)
-			{
-				double transform[9];
-				GetElementLocalTransformFromInterfaceReference(model, domain.id, ele, localNode, transform);
-				long nodeId = elements[ele].m_nodeID[localNode];
-				VariableRef uRef = dofMap.GetU(domain.id, nodeId);
-				VariableRef tRef = dofMap.GetT(domain.id, nodeId);
-				long base = nodeId * 3;
-				double inputU[3] = { stepBd.lu.b[base + 0], stepBd.lu.b[base + 1], stepBd.lu.b[base + 2] };
-				double inputT[3] = { stepBd.lu.b[base + 0], stepBd.lu.b[base + 1], stepBd.lu.b[base + 2] };
-
-				if (!uRef.known)
 				{
-					long src = uRef.globalBlock * 3;
-					double refValue[3] = { unknown.b[src + 0], unknown.b[src + 1], unknown.b[src + 2] };
+					double transform[9];
+					GetElementLocalTransformFromInterfaceReference(model, domain.id, ele, localNode, transform);
+					long nodeId = elements[ele].m_nodeID[localNode];
+					VariableRef uRef = dofMap.GetU(domain.id, nodeId);
+					VariableRef tRef = dofMap.GetT(domain.id, nodeId);
+					long base = nodeId * 3;
+					double inputValue[3] = { stepBd.lu.b[base + 0], stepBd.lu.b[base + 1], stepBd.lu.b[base + 2] };
+
+					if (!uRef.known)
+					{
+						long src = uRef.globalBlock * 3;
+						double refValue[3] = { unknown.b[src + 0], unknown.b[src + 1], unknown.b[src + 2] };
 					double localValue[3];
 					ApplyTransform3(transform, refValue, localValue);
 					stepBd.lu.b[base + 0] = uRef.sign * localValue[0];
@@ -3205,21 +3515,21 @@ static void ScatterUnknownToBoundary(const GlobalDofMap& dofMap,
 					stepBd.lt.b[base + 0] = tRef.sign * localValue[0];
 					stepBd.lt.b[base + 1] = tRef.sign * localValue[1];
 					stepBd.lt.b[base + 2] = tRef.sign * localValue[2];
-				}
-				if (uRef.known)
-				{
-					stepBd.lu.b[base + 0] = uRef.sign * inputU[0];
-					stepBd.lu.b[base + 1] = uRef.sign * inputU[1];
-					stepBd.lu.b[base + 2] = uRef.sign * inputU[2];
-				}
-				if (tRef.known)
-				{
-					stepBd.lt.b[base + 0] = tRef.sign * inputT[0];
-					stepBd.lt.b[base + 1] = tRef.sign * inputT[1];
-					stepBd.lt.b[base + 2] = tRef.sign * inputT[2];
+					}
+					if (uRef.known)
+					{
+						stepBd.lu.b[base + 0] = uRef.sign * inputValue[0];
+						stepBd.lu.b[base + 1] = uRef.sign * inputValue[1];
+						stepBd.lu.b[base + 2] = uRef.sign * inputValue[2];
+					}
+					if (tRef.known)
+					{
+						stepBd.lt.b[base + 0] = tRef.sign * inputValue[0];
+						stepBd.lt.b[base + 1] = tRef.sign * inputValue[1];
+						stepBd.lt.b[base + 2] = tRef.sign * inputValue[2];
+					}
 				}
 			}
-		}
 	}
 }
 static void InitializeMultiDomainState(MultiDomainState& state,
@@ -3543,45 +3853,6 @@ static int TryUsePreconditionerColumn(const CCSRMat& matrix,
 }
 
 
-struct MappedLeafPreconditionerStats
-{
-	long leafCount;
-	long pointCount;
-	long maxLeafPointCount;
-	long localBlocks;
-	long missingBlocks;
-	long invertedLeaves;
-	long failedLeaves;
-	long nonFiniteLeaves;
-
-	MappedLeafPreconditionerStats()
-		: leafCount(0),
-		pointCount(0),
-		maxLeafPointCount(0),
-		localBlocks(0),
-		missingBlocks(0),
-		invertedLeaves(0),
-		failedLeaves(0),
-		nonFiniteLeaves(0)
-	{
-	}
-};
-
-static int IsFiniteMatrix(const Wmatrix& block)
-{
-	if (!block.a || block.m <= 0 || block.n <= 0)
-		return 0;
-	for (long r = 0; r < block.m; ++r)
-	{
-		for (long c = 0; c < block.n; ++c)
-		{
-			if (!IsFiniteScalar(block.a[r][c]))
-				return 0;
-		}
-	}
-	return 1;
-}
-
 static void AssignCCSRBlockToLocalPreconditioner(const CCSRMat& matrix,
 	long row,
 	long col,
@@ -3615,8 +3886,7 @@ static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 	long pointCount,
 	long maxLeafPointCount,
 	const CCSRMat& matrix,
-	const GlobalDofMap& dofMap,
-	MappedLeafPreconditionerStats* stats)
+	const GlobalDofMap& dofMap)
 {
 	pre.Finish();
 	if (!elements || pointCount <= 0 || maxLeafPointCount <= 0 || matrix.n != pointCount)
@@ -3631,17 +3901,6 @@ static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 	CreateLeafPointer(leafPre, treePre, pointCount);
 
 	pre.m_LeafCount = leafPre.LeafCount;
-	if (stats)
-	{
-		stats->leafCount = leafPre.LeafCount;
-		stats->pointCount = pointCount;
-		stats->maxLeafPointCount = maxLeafPointCount;
-		stats->localBlocks = 0;
-		stats->missingBlocks = 0;
-		stats->invertedLeaves = 0;
-		stats->failedLeaves = 0;
-		stats->nonFiniteLeaves = 0;
-	}
 	pre.m_LeafPointCount = new long[leafPre.LeafCount];
 	pre.m_LeafBeginID = new long[leafPre.LeafCount];
 	pre.m_RePID = new long[pointCount];
@@ -3686,47 +3945,14 @@ static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 	}
 
 	for (long leaf = 0; leaf < pre.m_LeafCount; ++leaf)
-	{
-		if (!IsFiniteMatrix(pre.m_PreM[leaf]))
-		{
-			if (stats)
-				++stats->nonFiniteLeaves;
-			continue;
-		}
-		int invFlag = inv_mat(pre.m_PreM[leaf], pre.m_PreM[leaf].m);
-		if (invFlag < 0)
-		{
-			if (stats)
-				++stats->failedLeaves;
-			continue;
-		}
-		if (!IsFiniteMatrix(pre.m_PreM[leaf]))
-		{
-			if (stats)
-				++stats->nonFiniteLeaves;
-			continue;
-		}
-		if (stats)
-			++stats->invertedLeaves;
-	}
+		inv_mat(pre.m_PreM[leaf], pre.m_PreM[leaf].m);
 
-	if (stats)
-	{
-		stats->localBlocks = localBlocks;
-		stats->missingBlocks = missingBlocks;
-	}
-
-	long invertedLeaves = stats ? stats->invertedLeaves : pre.m_LeafCount;
-	long failedLeaves = stats ? stats->failedLeaves : 0;
-	long nonFiniteLeaves = stats ? stats->nonFiniteLeaves : 0;
-	int usable = missingBlocks == 0 && failedLeaves == 0 && nonFiniteLeaves == 0;
-	printf("MultiDomain mapped leaf preconditioner stats: leaves=%ld pointCount=%ld maxLeafPointCount=%ld localBlocks=%ld missingLocalBlocks=%ld invertedLeaves=%ld failedLeaves=%ld nonFiniteLeaves=%ld usable=%d.\n",
-		pre.m_LeafCount, pointCount, maxLeafPointCount, localBlocks, missingBlocks,
-		invertedLeaves, failedLeaves, nonFiniteLeaves, usable);
+	printf("MultiDomain mapped leaf preconditioner stats: leaves=%ld pointCount=%ld maxLeafPointCount=%ld localBlocks=%ld missingLocalBlocks=%ld.\n",
+		pre.m_LeafCount, pointCount, maxLeafPointCount, localBlocks, missingBlocks);
 
 	DeleteTree(treePre);
 	DeleteLeafPointer(leafPre);
-	return usable;
+	return 1;
 }
 
 static int BuildBlockDiagonalPreConditioner(PreConditioner& pre,
@@ -3915,17 +4141,19 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 
 	CCSRMat A;
 	CCSRMat KnownM;
-	unknownBuilder.Build(A);
-	knownBuilder.Build(KnownM);
-	if (!DiagnoseMultiDomainMatrixStructure(A, dofMap))
-	{
-		printf("MultiDomain matrix structure check failed. Stop before GMRES solve.\n");
-		return -1;
-	}
+		unknownBuilder.Build(A);
+		knownBuilder.Build(KnownM);
+		if (!DiagnoseMultiDomainMatrixStructure(A, dofMap))
+		{
+			printf("MultiDomain matrix structure check failed. Stop before GMRES solve.\n");
+			return -1;
+		}
+		if (!RunStep0AssemblyMatvecCheck(elements, model, dofMap, infElePid, elePid, A, KnownM))
+			printf("MultiDomain step0 assembly matvec diagnostic failed; continuing normal solve.\n");
 
-	CCSRMat* MTS = new CCSRMat[MaxN + 1];
-	SymCCSRMat* MGS = new SymCCSRMat[MaxN + 1];
-	CCSRMat* MGSFull = new CCSRMat[MaxN + 1];
+		CCSRMat* MTS = new CCSRMat[MaxN + 1];
+		SymCCSRMat* MGS = new SymCCSRMat[MaxN + 1];
+		CCSRMat* MGSFull = new CCSRMat[MaxN + 1];
 	int* MGSUseSym = new int[MaxN + 1];
 	for (long i = 0; i <= MaxN; ++i)
 		MGSUseSym[i] = 1;
@@ -3953,12 +4181,15 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 			printf("MultiDomain MGS[%ld] has non-symmetric 3x3 blocks; using full CCSR representation for this step.\n", step);
 			mgsBuilder.Build(MGSFull[step]);
 		}
-		totalHistoryTBlocks += mtsBuilder.NonZeroBlocks();
-		totalHistoryGBlocks += mgsBuilder.NonZeroBlocks();
-		printf("MultiDomain history step %ld: MTS blocks=%ld MGS blocks=%ld\n",
-			step, mtsBuilder.NonZeroBlocks(), mgsBuilder.NonZeroBlocks());
-	}
-	double matrixAssemblyTime = (double)(clock() - matrixClock) / (double)CLOCKS_PER_SEC;
+			totalHistoryTBlocks += mtsBuilder.NonZeroBlocks();
+			totalHistoryGBlocks += mgsBuilder.NonZeroBlocks();
+			printf("MultiDomain history step %ld: MTS blocks=%ld MGS blocks=%ld\n",
+				step, mtsBuilder.NonZeroBlocks(), mgsBuilder.NonZeroBlocks());
+			if (!RunHistoryAssemblyMatvecCheck(elements, model, dofMap, step,
+				MTS[step], MGS[step], MGSFull[step], MGSUseSym[step]))
+				printf("MultiDomain history assembly matvec diagnostic failed at step=%ld; continuing normal solve.\n", step);
+		}
+		double matrixAssemblyTime = (double)(clock() - matrixClock) / (double)CLOCKS_PER_SEC;
 
 	PreConditioner pre;
 	int preOk = 0;
@@ -3970,21 +4201,9 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	}
 	else
 	{
-		MappedLeafPreconditionerStats mappedStats;
-		preOk = BuildMappedLeafPreConditioner(elements, pre, model.nodeCount, maxleafpointnum, A, dofMap, &mappedStats);
+		preOk = BuildMappedLeafPreConditioner(elements, pre, model.nodeCount, maxleafpointnum, A, dofMap);
 		if (preOk)
-		{
 			printf("MultiDomain preconditioner selected: mapped-leaf.\n");
-		}
-		else
-		{
-			printf("MultiDomain mapped leaf preconditioner unavailable; fallback to block-diagonal. missingLocalBlocks=%ld failedLeaves=%ld nonFiniteLeaves=%ld.\n",
-				mappedStats.missingBlocks, mappedStats.failedLeaves, mappedStats.nonFiniteLeaves);
-			pre.Finish();
-			preOk = BuildBlockDiagonalPreConditioner(pre, A, dofMap);
-			if (preOk)
-				printf("MultiDomain preconditioner selected: block-diagonal fallback.\n");
-		}
 	}
 	if (!preOk)
 	{
@@ -3994,7 +4213,8 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		delete[] MGSUseSym;
 		return -1;
 	}
-	PrintPreconditionerSelfCheck(A, pre);
+	if (model.DomainCount() == 1)
+		PrintPreconditionerSelfCheck(A, pre);
 
 	std::vector<MultiDomainState> states((size_t)NStep + 1);
 	for (long step = 0; step <= NStep; ++step)
@@ -4063,7 +4283,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		finalFlag = flag;
 		++solvedSteps;
 		printf("MultiDomain GMRES step %ld: flag=%d outer=%d inner=%d\n", step, flag, iter[0], iter[1]);
-		WriteRhsBreakdownCsv("multidomain", step, elements, model.elementCount,
+		WriteRhsBreakdownCsv("multidomain", step, elements, model.elementCount, dofMap,
 			diagKnown, diagHistoryG, diagHistoryT, rhs, x, A);
 		if (flag != 0)
 			break;

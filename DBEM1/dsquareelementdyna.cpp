@@ -42,8 +42,8 @@ int DSquareElement::InElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
 
@@ -60,7 +60,7 @@ int DSquareElement::InElementIntDynamic()
 
 					for (j = 0; j < 8; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
 
 						m_OnElementU1ij[i][j][0] += DU1[0] * temp;
 						m_OnElementU1ij[i][j][1] += DU1[1] * temp;
@@ -121,8 +121,8 @@ int DSquareElement::InElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					Normal(s1, s2, Nor[0], Nor[1], Nor[2]);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
@@ -143,7 +143,7 @@ int DSquareElement::InElementIntDynamic()
 
 					for (j = 0; j < 8; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
 						if (i == j)
 						{
 							m_OnElementT1ij[i][j][0] += (DT1[0] - ST[0]) * temp;
@@ -207,19 +207,20 @@ int DSquareElement::InElementIntDynamic()
 				m_OnElementT1ij[i][j][3] += m_StaticTij[i][j][3];
 				m_OnElementT1ij[i][j][4] += m_StaticTij[i][j][4];
 				m_OnElementT1ij[i][j][5] += m_StaticTij[i][j][5];
-				m_OnElementT1ij[i][j][6] += m_StaticTij[i][j][6];
-				m_OnElementT1ij[i][j][7] += m_StaticTij[i][j][7];
-				m_OnElementT1ij[i][j][8] += m_StaticTij[i][j][8];
+					m_OnElementT1ij[i][j][6] += m_StaticTij[i][j][6];
+					m_OnElementT1ij[i][j][7] += m_StaticTij[i][j][7];
+					m_OnElementT1ij[i][j][8] += m_StaticTij[i][j][8];
 
-				m_OnElementT2ij[i][j][0] += m_StaticTij[i][j][0];
-				m_OnElementT2ij[i][j][1] += m_StaticTij[i][j][1];
-				m_OnElementT2ij[i][j][2] += m_StaticTij[i][j][2];
-				m_OnElementT2ij[i][j][3] += m_StaticTij[i][j][3];
-				m_OnElementT2ij[i][j][4] += m_StaticTij[i][j][4];
-				m_OnElementT2ij[i][j][5] += m_StaticTij[i][j][5];
-				m_OnElementT2ij[i][j][6] += m_StaticTij[i][j][6];
-				m_OnElementT2ij[i][j][7] += m_StaticTij[i][j][7];
-				m_OnElementT2ij[i][j][8] += m_StaticTij[i][j][8];
+					m_OnElementT2ij[i][j][0] += m_StaticTij[i][j][0];
+					m_OnElementT2ij[i][j][1] += m_StaticTij[i][j][1];
+					m_OnElementT2ij[i][j][2] += m_StaticTij[i][j][2];
+					m_OnElementT2ij[i][j][3] += m_StaticTij[i][j][3];
+					m_OnElementT2ij[i][j][4] += m_StaticTij[i][j][4];
+					m_OnElementT2ij[i][j][5] += m_StaticTij[i][j][5];
+					m_OnElementT2ij[i][j][6] += m_StaticTij[i][j][6];
+					m_OnElementT2ij[i][j][7] += m_StaticTij[i][j][7];
+					m_OnElementT2ij[i][j][8] += m_StaticTij[i][j][8];
+
 			}
 		}
 	}
@@ -273,8 +274,8 @@ int DSquareElement::PthInElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
 
@@ -291,7 +292,7 @@ int DSquareElement::PthInElementIntDynamic()
 
 					for (j = 0; j < 8; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
 
 						m_OnElementU1ij[i][j][0] += DU1[0] * temp;
 						m_OnElementU1ij[i][j][1] += DU1[1] * temp;
@@ -352,8 +353,8 @@ int DSquareElement::PthInElementIntDynamic()
 			{
 				for (l = 0; l < SINGAUSSPOINTPW2; ++l)
 				{
-					s1 = m_SecInfo.m_SecConstPosPW[AreaID][0][k][l];
-					s2 = m_SecInfo.m_SecConstPosPW[AreaID][1][k][l];
+					s1 = m_SecInfo.m_SecPosPW[i][AreaID][0][k][l];
+					s2 = m_SecInfo.m_SecPosPW[i][AreaID][1][k][l];
 					Jac = Jacobi(s1, s2);
 					Normal(s1, s2, Nor[0], Nor[1], Nor[2]);
 					GetR(m_nodelist[m_nodeID[i]], s1, s2, SR);
@@ -374,7 +375,7 @@ int DSquareElement::PthInElementIntDynamic()
 
 					for (j = 0; j < 8; ++j)// recycle for field point
 					{
-						temp = m_SecInfo.m_SecConstValPW[AreaID][k][l] * Jac;
+						temp = m_SecInfo.m_SecValPW[i][j][AreaID][k][l] * Jac;
 						if (i == j)
 						{
 							m_OnElementT1ij[i][j][0] += (DT1[0] - ST[0]) * temp;

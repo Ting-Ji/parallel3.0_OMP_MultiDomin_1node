@@ -437,6 +437,344 @@ static void GetValidationElementCenter(Point* pointList, long** elePid, long ele
 	center[2] /= 8.0;
 }
 
+static void TransformValidationVectorToAbs(long nodeId, const double localValue[3], double absValue[3])
+{
+	if (!DSquareElement::m_transmat || nodeId < 0)
+	{
+		absValue[0] = localValue[0];
+		absValue[1] = localValue[1];
+		absValue[2] = localValue[2];
+		return;
+	}
+
+	double* trans = DSquareElement::m_transmat[nodeId];
+	absValue[0] = trans[0] * localValue[0] + trans[3] * localValue[1] + trans[6] * localValue[2];
+	absValue[1] = trans[1] * localValue[0] + trans[4] * localValue[1] + trans[7] * localValue[2];
+	absValue[2] = trans[2] * localValue[0] + trans[5] * localValue[1] + trans[8] * localValue[2];
+}
+
+static void CopyBoundaryValue(BoundaryValue& dst, BoundaryValue& src, long nodeCount)
+{
+	dst.init(nodeCount);
+	for (long i = 0; i < 3 * nodeCount; ++i)
+	{
+		dst.lu.b[i] = src.lu.b[i];
+		dst.lt.b[i] = src.lt.b[i];
+	}
+}
+
+static void WriteLeftReactionResultantCsv(DSquareElement* elements,
+	Point* pointList,
+	long** elePid,
+	int* bdid,
+	BoundaryValue* bdValue,
+	long eleCount,
+	long NStep,
+	double dt,
+	int valuesAreLocal)
+{
+	if (!elements || !pointList || !elePid || !bdValue || eleCount <= 0)
+		return;
+
+	double minX = DBL_MAX;
+	double maxX = -DBL_MAX;
+	for (long ele = 0; ele < eleCount; ++ele)
+	{
+		if (!elePid[ele])
+			continue;
+		for (int localNode = 0; localNode < 8; ++localNode)
+		{
+			double x = pointList[elePid[ele][localNode]].pt[0];
+			if (x < minX)
+				minX = x;
+			if (x > maxX)
+				maxX = x;
+		}
+	}
+	if (minX == DBL_MAX)
+		return;
+
+	double tol = fabs(maxX - minX) * 1.0e-10;
+	if (tol < 1.0e-9)
+		tol = 1.0e-9;
+
+	std::string path = DBEMOutputPath("left_reaction_resultant.csv");
+	FILE* fp = 0;
+	fopen_s(&fp, path.c_str(), "w");
+	if (!fp)
+	{
+		printf("Cannot open %s for writing.\n", path.c_str());
+		return;
+	}
+
+	fprintf(fp, "step,time,leftElementCount,area,fx,fy,fz,avgTx,avgTy,avgTz\n");
+	for (long step = 0; step <= NStep; ++step)
+	{
+		long leftElementCount = 0;
+		double area = 0.0;
+		double resultant[3] = { 0.0, 0.0, 0.0 };
+
+		for (long ele = 0; ele < eleCount; ++ele)
+		{
+			if (!elePid[ele])
+				continue;
+			int bcid = bdid ? bdid[ele] : elements[ele].BCID;
+			if (bcid != 123 || elements[ele].SurfaceType != 0)
+				continue;
+
+			int onLeftEnd = 1;
+			for (int localNode = 0; localNode < 8; ++localNode)
+			{
+				double x = pointList[elePid[ele][localNode]].pt[0];
+				if (fabs(x - minX) > tol)
+				{
+					onLeftEnd = 0;
+					break;
+				}
+			}
+			if (!onLeftEnd)
+				continue;
+
+			++leftElementCount;
+			for (int gp = 0; gp < GAUSSPOINT2; ++gp)
+			{
+				double s1 = DSquareElement::m_quadinfo.m_gnm.rp[gp][0];
+				double s2 = DSquareElement::m_quadinfo.m_gnm.rp[gp][1];
+				double jacobi = elements[ele].Jacobi(s1, s2);
+				area += DSquareElement::m_quadinfo.m_RGV[gp] * jacobi;
+
+				for (int localNode = 0; localNode < 8; ++localNode)
+				{
+					long nodeId = elements[ele].m_nodeID[localNode];
+					long base = nodeId * 3;
+					double weight = DSquareElement::m_quadinfo.m_NRGV[localNode][gp] * jacobi;
+					double tLocal[3] = {
+						bdValue[step].lt.b[base + 0],
+						bdValue[step].lt.b[base + 1],
+						bdValue[step].lt.b[base + 2]
+					};
+					double tOut[3];
+					if (valuesAreLocal)
+						TransformValidationVectorToAbs(nodeId, tLocal, tOut);
+					else
+					{
+						tOut[0] = tLocal[0];
+						tOut[1] = tLocal[1];
+						tOut[2] = tLocal[2];
+					}
+					resultant[0] += tOut[0] * weight;
+					resultant[1] += tOut[1] * weight;
+					resultant[2] += tOut[2] * weight;
+				}
+			}
+		}
+
+		double avgTx = area > 0.0 ? resultant[0] / area : 0.0;
+		double avgTy = area > 0.0 ? resultant[1] / area : 0.0;
+		double avgTz = area > 0.0 ? resultant[2] / area : 0.0;
+		fprintf(fp, "%ld,%.17g,%ld,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
+			step,
+			step * dt,
+			leftElementCount,
+			area,
+			resultant[0],
+			resultant[1],
+			resultant[2],
+			avgTx,
+			avgTy,
+			avgTz);
+	}
+
+	fclose(fp);
+}
+
+static int ValidationElementOnEndPlane(Point* pointList,
+	long** elePid,
+	long ele,
+	int axis,
+	double target,
+	double tol)
+{
+	if (!pointList || !elePid || !elePid[ele])
+		return 0;
+
+	for (int localNode = 0; localNode < 8; ++localNode)
+	{
+		long pid = elePid[ele][localNode];
+		if (pid < 0)
+			return 0;
+		if (fabs(pointList[pid].pt[axis] - target) > tol)
+			return 0;
+	}
+	return 1;
+}
+
+static void WriteEndResultantsCsv(DSquareElement* elements,
+	Point* pointList,
+	long** elePid,
+	BoundaryValue* bdValue,
+	long eleCount,
+	long NStep,
+	double dt,
+	int valuesAreLocal)
+{
+	if (!elements || !pointList || !elePid || !bdValue || eleCount <= 0)
+		return;
+
+	double minCoord[3] = { DBL_MAX, DBL_MAX, DBL_MAX };
+	double maxCoord[3] = { -DBL_MAX, -DBL_MAX, -DBL_MAX };
+	for (long ele = 0; ele < eleCount; ++ele)
+	{
+		if (!elePid[ele])
+			continue;
+		for (int localNode = 0; localNode < 8; ++localNode)
+		{
+			long pid = elePid[ele][localNode];
+			if (pid < 0)
+				continue;
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				double value = pointList[pid].pt[axis];
+				if (value < minCoord[axis])
+					minCoord[axis] = value;
+				if (value > maxCoord[axis])
+					maxCoord[axis] = value;
+			}
+		}
+	}
+	if (minCoord[0] == DBL_MAX)
+		return;
+
+	int axis = 0;
+	double maxSpan = maxCoord[0] - minCoord[0];
+	for (int i = 1; i < 3; ++i)
+	{
+		double span = maxCoord[i] - minCoord[i];
+		if (span > maxSpan)
+		{
+			maxSpan = span;
+			axis = i;
+		}
+	}
+
+	double tol = fabs(maxSpan) * 1.0e-10;
+	if (tol < 1.0e-9)
+		tol = 1.0e-9;
+
+	std::string path = DBEMOutputPath("end_resultants.csv");
+	FILE* fp = 0;
+	fopen_s(&fp, path.c_str(), "w");
+	if (!fp)
+	{
+		printf("Cannot open %s for writing.\n", path.c_str());
+		return;
+	}
+
+	fprintf(fp, "side,step,time,elementCount,area,avgUx,avgUy,avgUz,fx,fy,fz,avgTx,avgTy,avgTz,reactionFx,reactionFy,reactionFz\n");
+	const char* sideName[2] = { "left", "right" };
+	const double sideCoord[2] = { minCoord[axis], maxCoord[axis] };
+	for (long step = 0; step <= NStep; ++step)
+	{
+		for (int side = 0; side < 2; ++side)
+		{
+			long sideElementCount = 0;
+			double area = 0.0;
+			double dispIntegral[3] = { 0.0, 0.0, 0.0 };
+			double tractionResultant[3] = { 0.0, 0.0, 0.0 };
+
+			for (long ele = 0; ele < eleCount; ++ele)
+			{
+				if (elements[ele].SurfaceType != 0)
+					continue;
+				if (!ValidationElementOnEndPlane(pointList, elePid, ele, axis, sideCoord[side], tol))
+					continue;
+
+				++sideElementCount;
+				for (int gp = 0; gp < GAUSSPOINT2; ++gp)
+				{
+					double s1 = DSquareElement::m_quadinfo.m_gnm.rp[gp][0];
+					double s2 = DSquareElement::m_quadinfo.m_gnm.rp[gp][1];
+					double jacobi = elements[ele].Jacobi(s1, s2);
+					area += DSquareElement::m_quadinfo.m_RGV[gp] * jacobi;
+
+					for (int localNode = 0; localNode < 8; ++localNode)
+					{
+						long nodeId = elements[ele].m_nodeID[localNode];
+						if (nodeId < 0)
+							continue;
+						long base = nodeId * 3;
+						double weight = DSquareElement::m_quadinfo.m_NRGV[localNode][gp] * jacobi;
+						double uLocal[3] = {
+							bdValue[step].lu.b[base + 0],
+							bdValue[step].lu.b[base + 1],
+							bdValue[step].lu.b[base + 2]
+						};
+						double tLocal[3] = {
+							bdValue[step].lt.b[base + 0],
+							bdValue[step].lt.b[base + 1],
+							bdValue[step].lt.b[base + 2]
+						};
+						double uOut[3];
+						double tOut[3];
+						if (valuesAreLocal)
+						{
+							TransformValidationVectorToAbs(nodeId, uLocal, uOut);
+							TransformValidationVectorToAbs(nodeId, tLocal, tOut);
+						}
+						else
+						{
+							uOut[0] = uLocal[0];
+							uOut[1] = uLocal[1];
+							uOut[2] = uLocal[2];
+							tOut[0] = tLocal[0];
+							tOut[1] = tLocal[1];
+							tOut[2] = tLocal[2];
+						}
+						for (int k = 0; k < 3; ++k)
+						{
+							dispIntegral[k] += uOut[k] * weight;
+							tractionResultant[k] += tOut[k] * weight;
+						}
+					}
+				}
+			}
+
+			double avgU[3] = { 0.0, 0.0, 0.0 };
+			double avgT[3] = { 0.0, 0.0, 0.0 };
+			if (area > 0.0)
+			{
+				for (int k = 0; k < 3; ++k)
+				{
+					avgU[k] = dispIntegral[k] / area;
+					avgT[k] = tractionResultant[k] / area;
+				}
+			}
+
+			fprintf(fp,
+				"%s,%ld,%.17g,%ld,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
+				sideName[side],
+				step,
+				step * dt,
+				sideElementCount,
+				area,
+				avgU[0],
+				avgU[1],
+				avgU[2],
+				tractionResultant[0],
+				tractionResultant[1],
+				tractionResultant[2],
+				avgT[0],
+				avgT[1],
+				avgT[2],
+				-tractionResultant[0],
+				-tractionResultant[1],
+				-tractionResultant[2]);
+		}
+	}
+
+	fclose(fp);
+}
+
 static void WriteValidationOutputs(DSquareElement* elements,
 	Point* pointList,
 	long** elePid,
@@ -451,43 +789,75 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	if (!ValidationOutputEnabled() || !elements || !pointList || !elePid || !bdValue)
 		return;
 
+	int valuesAreLocal = 0;
+	WriteLeftReactionResultantCsv(elements, pointList, elePid, bdid, bdValue, eleCount, NStep, dt, valuesAreLocal);
+	WriteEndResultantsCsv(elements, pointList, elePid, bdValue, eleCount, NStep, dt, valuesAreLocal);
+
 	FILE* state = 0;
 	std::string validationStatePath = DBEMOutputPath("validation_state.csv");
 	fopen_s(&state, validationStatePath.c_str(), "w");
 	if (state)
 	{
-		fprintf(state, "step,element,localNode,nodeId,domain,surfaceType,bcid,x,y,z,ux,uy,uz,tx,ty,tz\n");
+		fprintf(state, "step,element,localNode,physicalNodeId,geometryNodeId,domain,surfaceType,bcid,x,y,z,ux,uy,uz,tx,ty,tz\n");
 		for (long step = 0; step <= NStep; ++step)
 		{
 			for (long ele = 0; ele < eleCount; ++ele)
 			{
 				int bcid = bdid ? bdid[ele] : elements[ele].BCID;
 					for (int localNode = 0; localNode < 8; ++localNode)
-					{
-						long nodeId = elements[ele].m_nodeID[localNode];
-						long base = nodeId * 3;
-						Point& pt = elements[ele].m_nodelist[nodeId];
-					fprintf(state,
-						"%ld,%ld,%d,%ld,%d,%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
-						step,
+						{
+							long nodeId = elements[ele].m_nodeID[localNode];
+							long geometryNodeId = elePid[ele] ? elePid[ele][localNode] : -1;
+							long base = nodeId * 3;
+							Point& pt = elements[ele].m_nodelist[nodeId];
+							double uLocal[3] = {
+								bdValue[step].lu.b[base + 0],
+								bdValue[step].lu.b[base + 1],
+								bdValue[step].lu.b[base + 2]
+							};
+							double tLocal[3] = {
+								bdValue[step].lt.b[base + 0],
+								bdValue[step].lt.b[base + 1],
+								bdValue[step].lt.b[base + 2]
+							};
+							double uOut[3];
+							double tOut[3];
+							if (valuesAreLocal)
+							{
+								TransformValidationVectorToAbs(nodeId, uLocal, uOut);
+								TransformValidationVectorToAbs(nodeId, tLocal, tOut);
+							}
+							else
+							{
+								uOut[0] = uLocal[0];
+								uOut[1] = uLocal[1];
+								uOut[2] = uLocal[2];
+								tOut[0] = tLocal[0];
+								tOut[1] = tLocal[1];
+								tOut[2] = tLocal[2];
+							}
+						fprintf(state,
+							"%ld,%ld,%d,%ld,%ld,%d,%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
+							step,
 						ele,
 						localNode,
 						nodeId,
+						geometryNodeId,
 						elements[ele].DomainID,
 						elements[ele].SurfaceType,
-						bcid,
-						pt.pt[0],
-						pt.pt[1],
-						pt.pt[2],
-						bdValue[step].lu.b[base + 0],
-						bdValue[step].lu.b[base + 1],
-						bdValue[step].lu.b[base + 2],
-						bdValue[step].lt.b[base + 0],
-						bdValue[step].lt.b[base + 1],
-						bdValue[step].lt.b[base + 2]);
+							bcid,
+							pt.pt[0],
+							pt.pt[1],
+							pt.pt[2],
+							uOut[0],
+							uOut[1],
+							uOut[2],
+							tOut[0],
+							tOut[1],
+							tOut[2]);
+					}
 				}
 			}
-		}
 		fclose(state);
 	}
 	else
@@ -540,8 +910,10 @@ static void WriteValidationOutputs(DSquareElement* elements,
 					int localB = itf.localBForA[localNode];
 					if (localB < 0 || localB >= 8)
 						localB = localNode;
-					long a = (itf.eleA * 8 + localNode) * 3;
-					long b = (itf.eleB * 8 + localB) * 3;
+					long nodeA = elements[itf.eleA].m_nodeID[localNode];
+					long nodeB = elements[itf.eleB].m_nodeID[localB];
+					long a = nodeA * 3;
+					long b = nodeB * 3;
 					for (int k = 0; k < 3; ++k)
 					{
 					double du = fabs(bdValue[step].lu.b[a + k] - bdValue[step].lu.b[b + k]);
@@ -644,7 +1016,7 @@ int main()
 	starttime = clock();
 
 	fopen_s(&input, "BEM_DATACARD.DAT", "r");
-	fscanf_s(input, "%s", temptitlename, 19);
+	fscanf_s(input, "%s", temptitlename, 50);
 	strcpy_s(titlename, ".//input//");
 	strcat_s(titlename, temptitlename);
 	strcpy_s(modelname, titlename);
@@ -1309,9 +1681,9 @@ int main()
 		fprintf_s(logfile, "求解用时 %ld\n", endtime - temptime);
 		temptime = endtime;
 
-		//tecplot
-		for(i=0;i<=NStep;++i)
-			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile").c_str(),amplitude);
+			//tecplot
+			for(i=0;i<=NStep;++i)
+				ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile").c_str(),amplitude);
 
 
 		// ------输出选定节点的位移/面力随时间的变化信息--------
@@ -1414,7 +1786,7 @@ int main()
 	FreeBatchBoundaryFiles(BatchBoundaryFiles, BatchBoundaryCaseCount);
 	fclose(logfile);
 
-	return 1;
+	return 0;
 
 }
 
@@ -1655,24 +2027,12 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 	int** tecElePid = new int* [EleNum];
 	double** tecvalue = new double* [displayNodeCount];
 	double** displayDisp = new double* [displayNodeCount];
-	long* tecGeometryNode = new long[displayNodeCount];
-	double* geometryDispSum = new double[PointNum * 3];
-	long* geometryDispCount = new long[PointNum];
-
-	for (long point = 0; point < PointNum; ++point)
-	{
-		geometryDispCount[point] = 0;
-		geometryDispSum[3 * point + 0] = 0.0;
-		geometryDispSum[3 * point + 1] = 0.0;
-		geometryDispSum[3 * point + 2] = 0.0;
-	}
 
 	for (long node = 0; node < displayNodeCount; ++node)
 	{
 		tecNodes[node].pt[0] = 0.0;
 		tecNodes[node].pt[1] = 0.0;
 		tecNodes[node].pt[2] = 0.0;
-		tecGeometryNode[node] = -1;
 		tecvalue[node] = new double[14];
 		displayDisp[node] = new double[3];
 		for (int k = 0; k < 14; ++k)
@@ -1690,34 +2050,22 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 			long geometryNode = m_ElePID[ele][localNode];
 			long physicalNode = m_DSE[ele].m_nodeID[localNode];
 			tecElePid[ele][localNode] = (int)displayNode + 1;
-			tecGeometryNode[displayNode] = geometryNode;
-			if (geometryNode >= 0 && geometryNode < PointNum)
-				tecNodes[displayNode] = m_PointList[geometryNode];
 			if (physicalNode >= 0 && physicalNode < NodeNum)
 			{
+				tecNodes[displayNode] = m_DSE[ele].m_nodelist[physicalNode];
 				tecvalue[displayNode][0] = bd.lu.b[3 * physicalNode + 0];
 				tecvalue[displayNode][1] = bd.lu.b[3 * physicalNode + 1];
 				tecvalue[displayNode][2] = bd.lu.b[3 * physicalNode + 2];
-				if (geometryNode >= 0 && geometryNode < PointNum)
-				{
-					geometryDispSum[3 * geometryNode + 0] += tecvalue[displayNode][0];
-					geometryDispSum[3 * geometryNode + 1] += tecvalue[displayNode][1];
-					geometryDispSum[3 * geometryNode + 2] += tecvalue[displayNode][2];
-					geometryDispCount[geometryNode]++;
-				}
 			}
+			else if (geometryNode >= 0 && geometryNode < PointNum)
+				tecNodes[displayNode] = m_PointList[geometryNode];
 		}
 	}
 
 	for (long node = 0; node < displayNodeCount; ++node)
 	{
-		long geometryNode = tecGeometryNode[node];
 		for (int k = 0; k < 3; ++k)
-		{
 			displayDisp[node][k] = tecvalue[node][k];
-			if (geometryNode >= 0 && geometryNode < PointNum && geometryDispCount[geometryNode] > 0)
-				displayDisp[node][k] = geometryDispSum[3 * geometryNode + k] / (double)geometryDispCount[geometryNode];
-		}
 	}
 
 	double stresses[3][3];
@@ -1789,9 +2137,6 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 		}
 		delete[] tecvalue;
 		delete[] displayDisp;
-		delete[] tecGeometryNode;
-		delete[] geometryDispSum;
-		delete[] geometryDispCount;
 		delete[] tecNodes;
 		return 0;
 	}
@@ -1806,9 +2151,6 @@ static int WriteElementGeometryTecplot14VARS(DSquareElement* m_DSE,
 	}
 	delete[] tecvalue;
 	delete[] displayDisp;
-	delete[] tecGeometryNode;
-	delete[] geometryDispSum;
-	delete[] geometryDispCount;
 	delete[] tecNodes;
 
 	return 1;
@@ -2083,7 +2425,7 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 	long MinDispNodeID, MinTracNodeID;
 
 	// 解析解定义
-	int FlagTurn, FlagOne;
+	int FlagTun, FlagOne;
 	double TimeSum;
 	double TimeLength = ColumnLength / C_1D;
 
@@ -2093,7 +2435,7 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 	double* Ana_Trac = new double[10 * NStep + 10];
 
 	TimeSum = 0.0;
-	FlagTurn = 1;
+	FlagTun = 1;
 
 	// 位移解析解
 
@@ -2102,13 +2444,13 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 		if (TimeSum > 2.0 * TimeLength)
 		{
 			TimeSum -= 2.0 * TimeLength;
-			if (FlagTurn == 1)
-				FlagTurn = -1;
+			if (FlagTun == 1)
+				FlagTun = -1;
 			else
-				FlagTurn = 1;
+				FlagTun = 1;
 		}
 
-		if (FlagTurn == 1)
+		if (FlagTun == 1)
 			Ana_Disp[i] = -(dudt * TimeSum);
 		else
 			Ana_Disp[i] = -(MaxDisp - dudt * TimeSum);
@@ -2119,7 +2461,7 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 	// 面力解析解
 
 	TimeSum = 0.0;
-	FlagTurn = 1;
+	FlagTun = 1;
 	FlagOne = 0;
 
 	for (i = 0; i < 10 * NStep + 10; ++i)
@@ -2129,10 +2471,10 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 			if (TimeSum > TimeLength)
 			{
 				TimeSum -= TimeLength;
-				if (FlagTurn == 1)
-					FlagTurn = -1;
+				if (FlagTun == 1)
+					FlagTun = -1;
 				else
-					FlagTurn = 1;
+					FlagTun = 1;
 
 				FlagOne = 1;
 			}
@@ -2142,16 +2484,16 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 			if (TimeSum > 2 * TimeLength)
 			{
 				TimeSum -= 2 * TimeLength;
-				if (FlagTurn == 1)
-					FlagTurn = -1;
+				if (FlagTun == 1)
+					FlagTun = -1;
 				else
-					FlagTurn = 1;
+					FlagTun = 1;
 
 				FlagOne = 1;
 			}
 		}
 
-		if (FlagTurn == 1)
+		if (FlagTun == 1)
 			Ana_Trac[i] = 0.0;
 		else
 			Ana_Trac[i] = 2.0;
@@ -2466,7 +2808,7 @@ int GetInfoFromPoint_UppersurfaceforStatic(Point* m_NodeList, BoundaryValue* bd,
 
 		fprintf_s(fp, "N = %20.10e\n\n", res[PointID]);
 	}
-	fprintf_s(fp, "corner = %20.10e\n\n", outputcheck);
+	fprintf_s(fp, "coner = %20.10e\n\n", outputcheck);
 
 	for (itemp = 0; itemp < EleNum; itemp++)
 	{

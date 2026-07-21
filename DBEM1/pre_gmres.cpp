@@ -53,6 +53,75 @@ static FILE* OpenDiagnosticCsv(const char* path, const char* header)
 	return fp;
 }
 
+static int ParallelKnownRhsSelfCheckEnabled()
+{
+	static int enabled = -1;
+	if (enabled >= 0)
+		return enabled;
+
+	char* value = 0;
+	size_t valueLen = 0;
+	_dupenv_s(&value, &valueLen, "DBEM_PARALLEL_KNOWN_RHS_CHECK");
+	enabled = value && (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0);
+	if (value)
+		free(value);
+	return enabled;
+}
+
+static int SparseMulKnownRhsRowsParallel(CCSRMat& M, Wvector& x, Wvector& b)
+{
+	long ompThreadCount = thread_num > 0 ? thread_num : 1;
+
+#pragma omp parallel for num_threads(ompThreadCount)
+	for (long i = 0; i < M.n; ++i)
+	{
+		b[i * 3 + 1] = 0.0;
+		b[i * 3 + 2] = 0.0;
+		b[i * 3 + 3] = 0.0;
+
+		int rownum = M.row_ptr[i + 1] - M.row_ptr[i];
+		int rowstart = M.row_ptr[i];
+		for (int j = 0; j < rownum; ++j)
+		{
+			double btemp0 = x[M.col_index[rowstart + j] * 3 + 1];
+			double btemp1 = x[M.col_index[rowstart + j] * 3 + 2];
+			double btemp2 = x[M.col_index[rowstart + j] * 3 + 3];
+			long valueStart = (long)(rowstart + j) * 9;
+			b[i * 3 + 1] += M.value[valueStart] * btemp0 + M.value[valueStart + 1] * btemp1 + M.value[valueStart + 2] * btemp2;
+			b[i * 3 + 2] += M.value[valueStart + 3] * btemp0 + M.value[valueStart + 4] * btemp1 + M.value[valueStart + 5] * btemp2;
+			b[i * 3 + 3] += M.value[valueStart + 6] * btemp0 + M.value[valueStart + 7] * btemp1 + M.value[valueStart + 8] * btemp2;
+		}
+	}
+
+	return 0;
+}
+
+static int SparseMulKnownRhsParallel(CCSRMat& M, Wvector& x, Wvector& b)
+{
+	if (!ParallelKnownRhsSelfCheckEnabled())
+		return SparseMulKnownRhsRowsParallel(M, x, b);
+
+	Wvector serial(b.n, 0);
+	SparseMul(M, x, serial);
+	SparseMulKnownRhsRowsParallel(M, x, b);
+
+	double maxAbsDiff = 0.0;
+	double serialNorm2 = 0.0;
+	double diffNorm2 = 0.0;
+	for (long i = 1; i <= b.n; ++i)
+	{
+		double diff = b[i] - serial[i];
+		double absDiff = fabs(diff);
+		if (absDiff > maxAbsDiff)
+			maxAbsDiff = absDiff;
+		serialNorm2 += serial[i] * serial[i];
+		diffNorm2 += diff * diff;
+	}
+	double relativeDiff = serialNorm2 > 0.0 ? sqrt(diffNorm2 / serialNorm2) : sqrt(diffNorm2);
+	printf("Parallel known RHS self-check: maxAbsDiff=%.17g relativeDiff=%.17g\n", maxAbsDiff, relativeDiff);
+	return 0;
+}
+
 static void WriteOldRhsBreakdownCsv(const char* solver,
 	long step,
 	DSquareElement* elements,
@@ -686,21 +755,82 @@ int GMRESPreConditioner(DSquareElement* m_DSE, PreConditioner& m_Pre, long Count
 						subPre(3, 1) = 0;
 						subPre(3, 2) = 0;
 						subPre(3, 3) = 0;
+					}
+					m_Pre.m_PreM[p].assign(subPre, 3 * l + 1, 3 * k + 1, 3, 3);
 				}
-				m_Pre.m_PreM[p].assign(subPre, 3 * l + 1, 3 * k + 1, 3, 3);
 			}
+
 		}
-		
-	}
 
 	// ԤԤ
-	for (i = 0; i < m_Pre.m_LeafCount; ++i)
-		inv_mat(m_Pre.m_PreM[i], m_Pre.m_PreM[i].m);
+	long ompThreadCount = thread_num > 0 ? thread_num : 1;
+#pragma omp parallel for num_threads(ompThreadCount)
+	for (long preLeaf = 0; preLeaf < m_Pre.m_LeafCount; ++preLeaf)
+		inv_mat(m_Pre.m_PreM[preLeaf], m_Pre.m_PreM[preLeaf].m);
 
 	//release PreTree and p_leafPre
 	DeleteTree(m_treePre);
 	DeleteLeafPointer(p_leafPre);
 
+	return 1;
+}
+
+static int GMRESPreconditionerOutputUnique(PreConditioner& m_Pre, long pointCount)
+{
+	static PreConditioner* cachedPre = 0;
+	static long cachedPointCount = -1;
+	static long cachedLeafCount = -1;
+	static long* cachedLeafPointCount = 0;
+	static long* cachedLeafBeginID = 0;
+	static long* cachedRePID = 0;
+	static long* cachedOutputPID = 0;
+	static int cachedUnique = 0;
+
+	if (cachedPre == &m_Pre &&
+		cachedPointCount == pointCount &&
+		cachedLeafCount == m_Pre.m_LeafCount &&
+		cachedLeafPointCount == m_Pre.m_LeafPointCount &&
+		cachedLeafBeginID == m_Pre.m_LeafBeginID &&
+		cachedRePID == m_Pre.m_RePID &&
+		cachedOutputPID == m_Pre.m_OutputPID)
+		return cachedUnique;
+
+	if (pointCount <= 0)
+		return 0;
+
+	char* seen = new char[pointCount];
+	memset(seen, 0, sizeof(char) * pointCount);
+	for (long i = 0; i < m_Pre.m_LeafCount; ++i)
+	{
+		long beginID = m_Pre.m_LeafBeginID[i];
+		for (long j = 0; j < m_Pre.m_LeafPointCount[i]; ++j)
+		{
+			long outPID = m_Pre.m_OutputPID ? m_Pre.m_OutputPID[beginID + j] : m_Pre.m_RePID[beginID + j];
+			if (outPID < 0 || outPID >= pointCount || seen[outPID])
+			{
+				delete[] seen;
+				cachedPre = &m_Pre;
+				cachedPointCount = pointCount;
+				cachedLeafCount = m_Pre.m_LeafCount;
+				cachedLeafPointCount = m_Pre.m_LeafPointCount;
+				cachedLeafBeginID = m_Pre.m_LeafBeginID;
+				cachedRePID = m_Pre.m_RePID;
+				cachedOutputPID = m_Pre.m_OutputPID;
+				cachedUnique = 0;
+				return 0;
+			}
+			seen[outPID] = 1;
+		}
+	}
+	delete[] seen;
+	cachedPre = &m_Pre;
+	cachedPointCount = pointCount;
+	cachedLeafCount = m_Pre.m_LeafCount;
+	cachedLeafPointCount = m_Pre.m_LeafPointCount;
+	cachedLeafBeginID = m_Pre.m_LeafBeginID;
+	cachedRePID = m_Pre.m_RePID;
+	cachedOutputPID = m_Pre.m_OutputPID;
+	cachedUnique = 1;
 	return 1;
 }
 
@@ -711,6 +841,34 @@ int GMRES_M_X(PreConditioner& m_Pre, Wvector& X, Wvector& B)
 	long a1, a2;
 
 	B = 0.0;
+
+	if (GMRESPreconditionerOutputUnique(m_Pre, B.n / 3))
+	{
+		long ompThreadCount = thread_num > 0 ? thread_num : 1;
+#pragma omp parallel for num_threads(ompThreadCount)
+		for (long pi = 0; pi < m_Pre.m_LeafCount; ++pi)
+		{
+			for (long pj = 0; pj < m_Pre.m_LeafPointCount[pi]; ++pj)
+			{
+				long ptj = m_Pre.IID[pj];
+				long outPID = m_Pre.m_OutputPID ? m_Pre.m_OutputPID[m_Pre.m_LeafBeginID[pi] + pj] : m_Pre.m_RePID[m_Pre.m_LeafBeginID[pi] + pj];
+				long pa1 = m_Pre.IID[outPID];
+				for (long pk = 0; pk < m_Pre.m_LeafPointCount[pi]; ++pk)
+				{
+					long ptk = m_Pre.IID[pk];
+					long inPID = m_Pre.m_InputPID ? m_Pre.m_InputPID[m_Pre.m_LeafBeginID[pi] + pk] : m_Pre.m_RePID[m_Pre.m_LeafBeginID[pi] + pk];
+					long pa2 = m_Pre.IID[inPID];
+					for (int pm = 1; pm <= 3; ++pm)
+					{
+						for (int pn = 1; pn <= 3; ++pn)
+							B[pa1 + pm] += m_Pre.m_PreM[pi](ptj + pm, ptk + pn) * X[pa2 + pn];
+					}
+				}
+			}
+		}
+
+		return 1;
+	}
 
 	for (i = 0; i < m_Pre.m_LeafCount; ++i)
 	{
@@ -3660,7 +3818,7 @@ GMRES_CCSR_SOLVE_READY:
 
 	// B = MG_1(0) * bd[1].luMG_1(0)ʵ֪bd[1].lu1ʱ̵֪
 	//mat_vec_product(MG[0], bd[1].lu, B);
-	SparseMul(MTS[0], bd[1].lu, Bsum);
+	SparseMulKnownRhsParallel(MTS[0], bd[1].lu, Bsum);
 	diagKnown = Bsum;
 	diagHistoryG = 0.0;
 	diagHistoryT = 0.0;
@@ -3729,7 +3887,7 @@ GMRES_CCSR_SOLVE_READY:
 		
 		
 
-		SparseMul(MTS[0], bd[StepNum].lu, Bsum);
+		SparseMulKnownRhsParallel(MTS[0], bd[StepNum].lu, Bsum);
 		diagKnown = Bsum;
 		diagHistoryG = 0.0;
 		diagHistoryT = 0.0;
@@ -3917,12 +4075,6 @@ GMRES_CCSR_SOLVE_READY:
 
 	return 1;
 }
-
-
-
-
-
-
 
 
 

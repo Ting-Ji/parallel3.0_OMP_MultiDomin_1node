@@ -1590,7 +1590,7 @@ static int DBEMWriteTecplot14WithDisplayDisp(long nodeCount,
 		fprintf(out, ", \"var%d\"", j);
 	fprintf(out, "\n");
 
-	DBEMWriteTecplot14Zone(out, "original", nodeCount, eleCount, nodes, elePid, values, centerNodes, centerValues, displayDisp, centerDisplayDisp, 0);
+	//DBEMWriteTecplot14Zone(out, "original", nodeCount, eleCount, nodes, elePid, values, centerNodes, centerValues, displayDisp, centerDisplayDisp, 0);
 	DBEMWriteTecplot14Zone(out, "deformed", nodeCount, eleCount, nodes, elePid, values, centerNodes, centerValues, displayDisp, centerDisplayDisp, 1);
 
 	for (long ele = 0; ele < eleCount; ++ele)

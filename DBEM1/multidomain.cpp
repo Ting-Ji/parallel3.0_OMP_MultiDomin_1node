@@ -2474,9 +2474,6 @@ static int AssembleMultiDomainStep0DomainPthread(DSquareElement* elements,
 			MultiDomainStep0ThreadMain(&arg);
 			interfaceBlocks = AssembleMultiDomainStep0InterfaceSerialForDomain(elements, model, dofMap,
 				domain, infElePid, elePid, unknownBuilder);
-			printf("MultiDomain Step0 pthread assembly domain=%d threads=1 nonInterfaceBlocks=%ld interfaceSerialBlocks=%ld time=%lf\n",
-			domain.id, arg.blockCount, interfaceBlocks,
-			(double)(clock() - domainClock) / (double)CLOCKS_PER_SEC);
 		return arg.ok;
 	}
 
@@ -2551,10 +2548,6 @@ static int AssembleMultiDomainStep0DomainPthread(DSquareElement* elements,
 		if (workerOk)
 			interfaceBlocks = AssembleMultiDomainStep0InterfaceSerialForDomain(elements, model, dofMap,
 				domain, infElePid, elePid, unknownBuilder);
-
-		printf("MultiDomain Step0 pthread assembly domain=%d threads=%ld created=%ld nonInterfaceBlocks=%ld interfaceSerialBlocks=%ld time=%lf\n",
-		domain.id, localThreadCount, createSuccess, nonInterfaceBlocks, interfaceBlocks,
-		(double)(clock() - domainClock) / (double)CLOCKS_PER_SEC);
 	return workerOk;
 }
 
@@ -3258,8 +3251,7 @@ static void PrintInterfaceError(const GlobalDofMap& dofMap,
 			}
 		}
 	}
-	printf("MultiDomain interface error step %ld: max|uA-uB|=%e max|tB-normalSign*tA|=%e\n",
-		step, maxUDiff, maxTBalance);
+
 	(void)dofMap;
 	(void)elements;
 }

@@ -629,38 +629,38 @@ def write_legacy_datacard(path: Path, case_name: str, cfg: Config) -> None:
 # Editable default parameters. Run this script to regenerate the current rod120 case.
 # ============================================================
 class Config:
-    domains: int = 5               # axial domain count
-    case: str = "rod120"           # case name
+    domains: int = 100              # axial domain count
+    case: str = "100domain_test_simplified"           # case name
     out_dir: str = "DBEM1/input"   # output directory
     card_out: str = ""             # datacard output path; empty = input/<case>.DATACARD
-    write_single_domain_case: bool = True
-    single_case_suffix: str = "_single"
+    write_single_domain_case: bool = False  # write a single-domain outer-surface case
+    single_case_suffix: str = ""
     single_card_out: str = ""      # empty = input/<case>_single.DATACARD
 
-    length: float = 10.0           # rod length
-    width: float = 1.0             # cross-section width
-    height: float = 1.0            # cross-section height
+    length: float = 15           # rod length
+    width: float = 0.3             # cross-section width
+    height: float = 0.3            # cross-section height
 
     # Mesh subdivisions per domain face.
-    nx: int = 2                    # x-axis subdivisions on side faces
-    ny: int = 2                    # y subdivisions
-    nz: int = 2                    # z subdivisions
+    nx: int = 3                    # x-axis subdivisions on side faces
+    ny: int = 6                    # y subdivisions
+    nz: int = 6                    # z subdivisions
 
-    nstep: int = 40                # time steps
+    nstep: int = 1000                # time steps
     load_axis: str = "x"           # global load direction: "x", "y", "z"
-    load_amplitude: float = 1.0    # right-end traction amplitude
+    load_amplitude: float = 0.2   # right-end traction amplitude
     time_function: str = "constant"  # "constant", "ramp", "sine"
 
-    threads: int = 48
+    threads: int = 20
     flag_dyna: int = 2
-    beta: float = 0.8
+    beta: float = 0.6
     gap: float = 0.4
-    E: float = 2.0
-    nu: float = 0.2
-    rho: float = 2.0
+    E: float = 200
+    nu: float = 0
+    rho: float = 8
     amplify: float = 1.0
     iterations: int = 200
-    error: float = 1.0e-4
+    error: float = 1.0e-5
     premaxleafpointnum: int = 10
 
 def main() -> None:

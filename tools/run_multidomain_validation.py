@@ -569,16 +569,10 @@ def read_state(path: Path) -> List[Dict[str, float]]:
         for raw in reader:
             row: Dict[str, float] = {}
             for key, value in raw.items():
-                if key in ("step", "element", "domain", "surfaceType", "bcid"):
+                if key in ("step", "element", "localNode", "nodeId", "domain", "surfaceType", "bcid"):
                     row[key] = int(value)
                 else:
                     row[key] = parse_float(value)
-            if "cx" not in row and "x" in row:
-                row["cx"] = row["x"]
-            if "cy" not in row and "y" in row:
-                row["cy"] = row["y"]
-            if "cz" not in row and "z" in row:
-                row["cz"] = row["z"]
             rows.append(row)
     return rows
 
@@ -592,7 +586,7 @@ def read_rhs_breakdown(path: Path) -> List[Dict[str, object]]:
         for raw in reader:
             row: Dict[str, object] = {}
             for key, value in raw.items():
-                if key in ("step", "rowElement", "domain", "surfaceType", "bcid"):
+                if key in ("step", "rowNode", "rowElement", "localNode", "domain", "surfaceType", "bcid"):
                     row[key] = int(value)
                 elif key in ("component", "solver"):
                     row[key] = value
@@ -694,10 +688,27 @@ def make_key(row: Dict[str, float], key_fields: Sequence[str]) -> Tuple[object, 
     key: List[object] = []
     for field in key_fields:
         if field in ("cx", "cy", "cz"):
-            key.append(round(float(row[field]), 10))
+            key.append(round(coord_value(row, field), 10))
+        elif field in ("nx", "ny", "nz"):
+            key.append(round(float(row.get(field, 0.0)), 10))
         else:
             key.append(int(row[field]))
     return tuple(key)
+
+
+def coord_value(row: Dict[str, float], field: str) -> float:
+    """Return a coordinate value from either center or nodal CSV columns.
+
+    Older diagnostics wrote cx/cy/cz.  The current validation_state.csv emitted
+    by DBEM1 writes x/y/z.  The comparison key only needs a stable spatial
+    coordinate, so support both formats.
+    """
+    if field in row:
+        return float(row[field])
+    fallback = {"cx": "x", "cy": "y", "cz": "z"}.get(field)
+    if fallback and fallback in row:
+        return float(row[fallback])
+    raise KeyError(field)
 
 
 def check_md_run(result: RunResult, require_self_check: bool = False) -> CompareResult:
@@ -761,9 +772,13 @@ def check_interface(result: RunResult, abs_tol: float, rel_tol: float) -> Compar
 def rhs_key(row: Dict[str, object]) -> Tuple[object, ...]:
     return (
         int(row["step"]),
+        int(row.get("localNode", 0)),
         round(float(row["cx"]), 10),
         round(float(row["cy"]), 10),
         round(float(row["cz"]), 10),
+        round(float(row.get("nx", 0.0)), 10),
+        round(float(row.get("ny", 0.0)), 10),
+        round(float(row.get("nz", 0.0)), 10),
         str(row["component"]),
     )
 
@@ -838,7 +853,7 @@ def compare_rhs_breakdown(single: RunResult, md: RunResult) -> CompareResult:
     with diff_path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "rank", "field", "step", "cx", "cy", "cz", "component",
+            "rank", "field", "step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz", "component",
             "single", "multidomain", "absDiff", "relDiff",
         ])
         for rank, (diff, rel, field, single_row, md_row) in enumerate(diffs[:50], start=1):
@@ -846,9 +861,13 @@ def compare_rhs_breakdown(single: RunResult, md: RunResult) -> CompareResult:
                 rank,
                 field,
                 int(md_row["step"]),
+                int(md_row.get("localNode", -1)),
                 f"{float(md_row['cx']):.17g}",
                 f"{float(md_row['cy']):.17g}",
                 f"{float(md_row['cz']):.17g}",
+                f"{float(md_row.get('nx', 0.0)):.17g}",
+                f"{float(md_row.get('ny', 0.0)):.17g}",
+                f"{float(md_row.get('nz', 0.0)):.17g}",
                 str(md_row["component"]),
                 f"{float(single_row[field]):.17g}",
                 f"{float(md_row[field]):.17g}",
@@ -866,7 +885,9 @@ def compare_rhs_breakdown(single: RunResult, md: RunResult) -> CompareResult:
             f"md={float(md_row[field]):.17g}, abs={diff:.6e}, rel={rel:.6e}"
         )
     field_msg = ", ".join(f"{field}={field_max[field]:.3e}" for field in RHS_COMPARE_FIELDS)
-    passed = missing == 0 and compared > 0
+    abs_tol = 1.0e-8
+    rel_tol = 1.0e-5
+    passed = missing == 0 and compared > 0 and (max_abs <= abs_tol or max_rel <= rel_tol)
     return CompareResult(
         "2domain RHS outer diagnostic",
         passed,
@@ -882,12 +903,13 @@ def compare_rhs_breakdown(single: RunResult, md: RunResult) -> CompareResult:
 def write_state_outer_diff_report(single: RunResult, md: RunResult) -> Path:
     single_rows = read_state(single.state_path)
     md_rows = read_state(md.state_path)
-    single_map = {make_key(row, ("step", "cx", "cy", "cz")): row for row in single_rows}
+    outer_key = ("step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz")
+    single_map = {make_key(row, outer_key): row for row in single_rows}
     diffs: List[Tuple[float, float, str, Dict[str, float], Dict[str, float]]] = []
     for md_row in md_rows:
         if int(md_row["surfaceType"]) != 0:
             continue
-        key = make_key(md_row, ("step", "cx", "cy", "cz"))
+        key = make_key(md_row, outer_key)
         single_row = single_map.get(key)
         if single_row is None:
             continue
@@ -901,16 +923,21 @@ def write_state_outer_diff_report(single: RunResult, md: RunResult) -> Path:
     with diff_path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "rank", "field", "step", "cx", "cy", "cz", "single", "multidomain", "absDiff", "relDiff",
+            "rank", "field", "step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz",
+            "single", "multidomain", "absDiff", "relDiff",
         ])
         for rank, (diff, rel, field, single_row, md_row) in enumerate(diffs[:100], start=1):
             writer.writerow([
                 rank,
                 field,
                 int(md_row["step"]),
-                f"{float(md_row['cx']):.17g}",
-                f"{float(md_row['cy']):.17g}",
-                f"{float(md_row['cz']):.17g}",
+                int(md_row.get("localNode", -1)),
+                f"{coord_value(md_row, 'cx'):.17g}",
+                f"{coord_value(md_row, 'cy'):.17g}",
+                f"{coord_value(md_row, 'cz'):.17g}",
+                f"{float(md_row.get('nx', 0.0)):.17g}",
+                f"{float(md_row.get('ny', 0.0)):.17g}",
+                f"{float(md_row.get('nz', 0.0)):.17g}",
                 f"{float(single_row[field]):.17g}",
                 f"{float(md_row[field]):.17g}",
                 f"{diff:.17g}",
@@ -982,7 +1009,7 @@ def compare_suite(results: Dict[str, RunResult], include_ten: bool, full: bool) 
                 md_rows,
                 abs_tol=1.0e-8,
                 rel_tol=1.0e-6,
-                key_fields=("step", "element"),
+                key_fields=("step", "element", "localNode"),
             )
         )
 
@@ -996,7 +1023,7 @@ def compare_suite(results: Dict[str, RunResult], include_ten: bool, full: bool) 
             md2_rows,
             abs_tol=1.0e-7,
             rel_tol=1.0e-5,
-            key_fields=("step", "cx", "cy", "cz"),
+            key_fields=("step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz"),
             only_outer_b=True,
         )
     )
@@ -1015,7 +1042,7 @@ def compare_suite(results: Dict[str, RunResult], include_ten: bool, full: bool) 
                 md10_rows,
                 abs_tol=1.0e-7,
                 rel_tol=1.0e-5,
-                key_fields=("step", "cx", "cy", "cz"),
+                key_fields=("step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz"),
                 only_outer_b=True,
             )
         )
@@ -1034,7 +1061,7 @@ def compare_suite(results: Dict[str, RunResult], include_ten: bool, full: bool) 
                 md100_rows,
                 abs_tol=1.0e-7,
                 rel_tol=1.0e-4,
-                key_fields=("step", "cx", "cy", "cz"),
+                key_fields=("step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz"),
                 only_outer_b=True,
             )
         )
@@ -1078,7 +1105,7 @@ def compare_diagnostic_suite(results: Dict[str, RunResult]) -> List[CompareResul
             md_rows,
             abs_tol=1.0e-8,
             rel_tol=1.0e-6,
-            key_fields=("step", "element"),
+            key_fields=("step", "element", "localNode"),
         )
     )
 
@@ -1092,7 +1119,7 @@ def compare_diagnostic_suite(results: Dict[str, RunResult]) -> List[CompareResul
             md2_rows,
             abs_tol=1.0e-7,
             rel_tol=1.0e-5,
-            key_fields=("step", "cx", "cy", "cz"),
+                key_fields=("step", "localNode", "cx", "cy", "cz", "nx", "ny", "nz"),
             only_outer_b=True,
         )
     )

@@ -635,7 +635,7 @@ int main()
 	starttime = clock();
 
 	fopen_s(&input, "BEM_DATACARD.DAT", "r");
-	fscanf_s(input, "%s", temptitlename, 19);
+	fscanf_s(input, "%s", temptitlename, 49);
 	strcpy_s(titlename, ".//input//");
 	strcat_s(titlename, temptitlename);
 	strcpy_s(modelname, titlename);

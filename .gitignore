@@ -33,7 +33,8 @@ DBEM1/io_check/bin/
 DBEM1/io_check/Release/
 output/
 validation_runs/
-
+DBEM1/reports
+tools/
 # Local MSVC runtime copies; use installed Visual Studio/MSVC instead
 include/
 lib/

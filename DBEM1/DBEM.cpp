@@ -3029,6 +3029,6 @@ int GetInfoFromPoint_OutPut(OutPoint* OutP, OutEle* OutE, BoundaryValue* bd, lon
 		fclose(fp);
 
 	}
-	return 1;
+	return 0;
 }
 

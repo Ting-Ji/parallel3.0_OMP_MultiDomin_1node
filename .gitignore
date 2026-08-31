@@ -38,6 +38,7 @@ tools/
 # Local MSVC runtime copies; use installed Visual Studio/MSVC instead
 include/
 lib/
+paper/
 
 # Generated reports and caches
 DBEM1/reports/build/

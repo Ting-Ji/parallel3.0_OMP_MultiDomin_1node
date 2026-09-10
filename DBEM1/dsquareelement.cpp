@@ -1983,11 +1983,11 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt, long T_ID)
 
 		if (Flag)
 		{
-			for (PointID = 0; PointID < 8; ++PointID)
+			// One constant physical unknown; retain the eight-node geometry.
+			for (PointID = 0; PointID < 1; ++PointID)
 			{
 				JacobiT = Jacobi(m_gnm.rp[i][0], m_gnm.rp[i][1]);
-				temp = m_quadinfo.m_NRGV[PointID][i] * JacobiT;
-				//temp = m_quadinfo.m_NRGV[PointID][i] * m_Jacobi[i];
+				temp = m_quadinfo.m_RGV[i] * JacobiT;
 				AssistUij[T_ID][PointID][0] += UT[0] * temp;
 				AssistUij[T_ID][PointID][1] += UT[1] * temp;
 				AssistUij[T_ID][PointID][2] += UT[2] * temp;
@@ -2234,7 +2234,7 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, lo
 {
 	// n = 0..M-1
 
-	double R[6], RI[4], UT1[9], UT2[9], temp;
+	double R[6], RI[4], UT[9], temp;
 	int i, PointID;
 	Point intpt;
 	double JacobiT;
@@ -2260,28 +2260,25 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, lo
 		GetFromLocal(m_gnm.rp[i][0], m_gnm.rp[i][1], intpt);
 		GetR(source, intpt, R, RI);
 		Normal(m_gnm.rp[i][0], m_gnm.rp[i][1], normalT[0], normalT[1], normalT[2]);
-		Flag = GetDynaTij(1, UT1, n, dt, R, RI, normalT);
-		Flag += GetDynaTij(2, UT2, n, dt, R, RI, normalT);
-		//GetR(source, m_intpt[i], R, RI);
-		//Flag = GetDynaTij(1, UT1, n, dt, R, RI, m_normal[i]);
-		//Flag += GetDynaTij(2, UT2, n, dt, R, RI, m_normal[i]);
+		// The caller combines T1/T2; integrate only the requested kernel.
+		Flag = GetDynaTij(typeT, UT, n, dt, R, RI, normalT);
 
 		if (Flag)
 		{
-			for (PointID = 0; PointID < 8; ++PointID)
+			// Match the constant physical weight used by the PW branch.
+			for (PointID = 0; PointID < 1; ++PointID)
 			{
 				JacobiT = Jacobi(m_gnm.rp[i][0], m_gnm.rp[i][1]);
-				temp = m_quadinfo.m_NRGV[PointID][i] * JacobiT;
-				//temp = m_quadinfo.m_NRGV[PointID][i] * m_Jacobi[i];
-				AssistTij[T_ID][PointID][0] += (UT1[0] + UT2[0]) * temp;
-				AssistTij[T_ID][PointID][1] += (UT1[1] + UT2[1]) * temp;
-				AssistTij[T_ID][PointID][2] += (UT1[2] + UT2[2]) * temp;
-				AssistTij[T_ID][PointID][3] += (UT1[3] + UT2[3]) * temp;
-				AssistTij[T_ID][PointID][4] += (UT1[4] + UT2[4]) * temp;
-				AssistTij[T_ID][PointID][5] += (UT1[5] + UT2[5]) * temp;
-				AssistTij[T_ID][PointID][6] += (UT1[6] + UT2[6]) * temp;
-				AssistTij[T_ID][PointID][7] += (UT1[7] + UT2[7]) * temp;
-				AssistTij[T_ID][PointID][8] += (UT1[8] + UT2[8]) * temp;
+				temp = m_quadinfo.m_RGV[i] * JacobiT;
+				AssistTij[T_ID][PointID][0] += UT[0] * temp;
+				AssistTij[T_ID][PointID][1] += UT[1] * temp;
+				AssistTij[T_ID][PointID][2] += UT[2] * temp;
+				AssistTij[T_ID][PointID][3] += UT[3] * temp;
+				AssistTij[T_ID][PointID][4] += UT[4] * temp;
+				AssistTij[T_ID][PointID][5] += UT[5] * temp;
+				AssistTij[T_ID][PointID][6] += UT[6] * temp;
+				AssistTij[T_ID][PointID][7] += UT[7] * temp;
+				AssistTij[T_ID][PointID][8] += UT[8] * temp;
 			}
 		}
 	}

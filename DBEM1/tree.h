@@ -19,19 +19,35 @@ struct PointList
 
 struct TreeNeighbor;
 
+enum TreeLeafReason
+{
+	TreeLeafNone = 0,
+	TreeLeafPointLimit = 1,
+	TreeLeafDegenerate = 2,
+	TreeLeafMaxDepth = 3
+};
+
+struct TreeBuildStats
+{
+	long FallbackAssignmentCount;
+	long DegenerateLeafCount;
+	long MaxDepthLeafCount;
+};
+
 // tree structure
 struct Tree
 {
 	Tree* m_Father;                        // pointer to father
 	Tree* m_Children[CHILDNUMBER];         // pointers to children
 	int Flag;                              // flag=1: leaf; flag=0: non_leaf
-	Cube m_Cube;                           // geometry information
+	AniCube m_Box;                         // axis-aligned geometry information
 	PointList* m_PointList;                // list of points contained
 	long m_PointCount;                     // total number of points contained
 	long m_BeginID;                        // begin point ID
 	TreeNeighbor* m_Neibor;                // list of neighbors
 	TreeNeighbor* m_Interaction;           // interaction list
     long m_Level;                          // level
+	int m_LeafReason;                      // reason why this node became a leaf
 };
 
 // tree neighbor or interaction list structure
@@ -59,9 +75,14 @@ struct PointerOfLeaf
 
 // initial the root of tree
 void InitRoot(Tree* &m_tree,const Cube& m_cube,long totalpoint);
+void InitRoot(Tree* &m_tree,const AniCube& m_box,long totalpoint);
 
 // create oct-tree structure according to the list of points
 void CreateTree(Tree* &m_tree,Point* m_plist,long max_point);
+
+// reset/read diagnostics for the most recently built tree
+void ResetTreeBuildStats();
+TreeBuildStats GetTreeBuildStats();
 
 // reset moments of a treenode
 void ResetTree(Tree* &m_tree);

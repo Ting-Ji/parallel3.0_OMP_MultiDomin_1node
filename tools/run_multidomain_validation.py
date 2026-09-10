@@ -513,9 +513,18 @@ def is_wsl() -> bool:
     return platform.system().lower() == "linux" and "microsoft" in platform.release().lower()
 
 
-def run_case(case_dir: Path, spec: CaseSpec, timeout: int) -> RunResult:
+def run_case(
+    case_dir: Path,
+    spec: CaseSpec,
+    timeout: int,
+    tree_root_mode: Optional[str] = None,
+) -> RunResult:
     env = os.environ.copy()
     env["DBEM_VALIDATION_OUTPUT"] = "1"
+    if spec.multi_domain and tree_root_mode:
+        env["DBEM_MULTIDOMAIN_TREE_ROOT"] = tree_root_mode
+    elif spec.multi_domain:
+        env.pop("DBEM_MULTIDOMAIN_TREE_ROOT", None)
     if spec.rhs_diagnostic:
         env["DBEM_RHS_DIAGNOSTIC"] = "1"
     exe = case_dir / "DBEM1.exe"
@@ -535,7 +544,8 @@ def run_case(case_dir: Path, spec: CaseSpec, timeout: int) -> RunResult:
     )
     log_text = completed.stdout + "\n--- STDERR ---\n" + completed.stderr
     (case_dir / "run.log").write_text(log_text, encoding="utf-8", errors="replace")
-    metrics_path = case_dir / "output" / "validation_metrics.txt"
+    output_dir = case_output_dir(case_dir, spec)
+    metrics_path = output_dir / "validation_metrics.txt"
     metrics = parse_metrics(metrics_path)
     return RunResult(
         spec=spec,
@@ -543,8 +553,19 @@ def run_case(case_dir: Path, spec: CaseSpec, timeout: int) -> RunResult:
         returncode=completed.returncode,
         metrics=metrics,
         log_text=log_text,
-        state_path=case_dir / "output" / "validation_state.csv",
+        state_path=output_dir / "validation_state.csv",
     )
+
+
+def case_output_dir(case_dir: Path, spec: CaseSpec) -> Path:
+    """Resolve both the current per-case output layout and the legacy flat layout."""
+    output_root = case_dir / "output"
+    nested = output_root / f"rod_validation_{spec.nstep}"
+    return nested if nested.is_dir() else output_root
+
+
+def result_output_dir(result: RunResult) -> Path:
+    return case_output_dir(result.case_dir, result.spec)
 
 
 def parse_metrics(path: Path) -> Dict[str, str]:
@@ -752,6 +773,34 @@ def check_md_run(result: RunResult, require_self_check: bool = False) -> Compare
     return CompareResult(result.spec.name + " run", True, 0.0, 0.0, 0, message="ok")
 
 
+def check_tree_diagnostics(result: RunResult, expected_mode: str) -> CompareResult:
+    actual_mode = result.metrics.get("TreeRootMode", "")
+    try:
+        leaf_count = int(result.metrics.get("TreeLeafCount", "0"))
+        duplicate_count = int(result.metrics.get("TreeDuplicatePointCount", "-1"))
+        missing_count = int(result.metrics.get("TreeMissingPointCount", "-1"))
+        fallback_count = int(result.metrics.get("TreeFallbackAssignmentCount", "-1"))
+    except ValueError:
+        leaf_count = 0
+        duplicate_count = -1
+        missing_count = -1
+        fallback_count = -1
+    leaf_map = result_output_dir(result) / "tree_leaf_map.csv"
+    passed = (
+        actual_mode == expected_mode
+        and leaf_count > 0
+        and duplicate_count == 0
+        and missing_count == 0
+        and fallback_count >= 0
+        and leaf_map.exists()
+    )
+    message = (
+        f"mode={actual_mode or 'missing'}, leaves={leaf_count}, duplicate={duplicate_count}, "
+        f"missing={missing_count}, fallback={fallback_count}, leaf_map={leaf_map.exists()}"
+    )
+    return CompareResult(result.spec.name + " tree", passed, 0.0, 0.0, 0, message=message)
+
+
 def check_interface(result: RunResult, abs_tol: float, rel_tol: float) -> CompareResult:
     max_u = float(result.metrics.get("InterfaceOverallMaxAbsU", "inf"))
     max_t = float(result.metrics.get("InterfaceOverallMaxAbsTBalance", "inf"))
@@ -784,7 +833,7 @@ def rhs_key(row: Dict[str, object]) -> Tuple[object, ...]:
 
 
 def check_residual_probe(result: RunResult, abs_tol: float, rel_tol: float) -> CompareResult:
-    path = result.case_dir / "output" / "residual_probe.csv"
+    path = result_output_dir(result) / "residual_probe.csv"
     try:
         rows = read_residual_probe(path)
     except Exception as exc:
@@ -816,8 +865,8 @@ def check_residual_probe(result: RunResult, abs_tol: float, rel_tol: float) -> C
 
 def compare_rhs_breakdown(single: RunResult, md: RunResult) -> CompareResult:
     try:
-        single_rows = read_rhs_breakdown(single.case_dir / "output" / "rhs_breakdown.csv")
-        md_rows = read_rhs_breakdown(md.case_dir / "output" / "rhs_breakdown.csv")
+        single_rows = read_rhs_breakdown(result_output_dir(single) / "rhs_breakdown.csv")
+        md_rows = read_rhs_breakdown(result_output_dir(md) / "rhs_breakdown.csv")
     except Exception as exc:
         return CompareResult("2domain RHS outer diagnostic", False, math.inf, math.inf, 0, message=str(exc))
 
@@ -849,7 +898,7 @@ def compare_rhs_breakdown(single: RunResult, md: RunResult) -> CompareResult:
             field_max[field] = max(field_max[field], diff)
 
     diffs.sort(key=lambda item: item[0], reverse=True)
-    diff_path = md.case_dir / "output" / "rhs_outer_diff.csv"
+    diff_path = result_output_dir(md) / "rhs_outer_diff.csv"
     with diff_path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
@@ -919,7 +968,7 @@ def write_state_outer_diff_report(single: RunResult, md: RunResult) -> Path:
             diffs.append((abs(a - b), rel_error(a, b), field, single_row, md_row))
 
     diffs.sort(key=lambda item: item[0], reverse=True)
-    diff_path = md.case_dir / "output" / "state_outer_diff.csv"
+    diff_path = result_output_dir(md) / "state_outer_diff.csv"
     with diff_path.open("w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow([
@@ -1206,6 +1255,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--exe", help="path to DBEM1.exe; defaults to DBEM1/x64/Release/DBEM1.exe")
     parser.add_argument("--timeout", type=int, default=600, help="timeout per case in seconds")
     parser.add_argument("--run-root", help="custom validation run directory")
+    parser.add_argument(
+        "--tree-root-mode",
+        choices=("cuboid", "cube"),
+        help="force the multi-domain preconditioner tree root mode; omit to use the executable default",
+    )
     args = parser.parse_args(argv)
 
     root = repo_root()
@@ -1220,7 +1274,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     for spec in specs:
         print(f"[run] {spec.name}")
         case_dir = prepare_case(run_root, root, exe, spec)
-        result = run_case(case_dir, spec, args.timeout)
+        result = run_case(case_dir, spec, args.timeout, args.tree_root_mode)
         results[spec.name] = result
         print(f"      returncode={result.returncode} dir={case_dir}")
         if not is_success_returncode(result.returncode) or not result.state_path.exists():
@@ -1244,6 +1298,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 1
 
     checks = compare_diagnostic_suite(results) if args.diagnose_two_domain else compare_suite(results, include_ten, args.full)
+    expected_tree_mode = args.tree_root_mode or "cuboid"
+    for result in results.values():
+        if result.spec.multi_domain and result.spec.domain_count > 1:
+            checks.append(check_tree_diagnostics(result, expected_tree_mode))
     write_summary(run_root, results, checks)
     failed = [check for check in checks if not check.passed]
     for check in checks:

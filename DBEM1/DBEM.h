@@ -20,6 +20,7 @@ int ResultPlotNodeAverage_14VARS(DSquareElement* m_DSE, Point* m_PointList, long
 // 输出选定节点的位移/面力随时间变化信息
 int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long NodeNum, long NStep, double dt, double dudt, double C_1D, double ColumnLength, long** m_ElePID);
 // 获取单元平均尺寸：根据单元第1、2个几何节点距离平均得到
+// Minimum corner-edge length over all elements (first four nodes are corners).
 double GetEleSize(Point* m_PointList, long** m_ElePID, long PointNum, long EleNum);
 // 获取无限大域内圆球表面径向位移
 double GetRadiusDispFromSphere(double rou, double a, double v, double t, double c1);

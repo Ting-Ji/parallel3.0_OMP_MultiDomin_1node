@@ -4,11 +4,13 @@
 #include "output_path.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <ctime>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <cerrno>
 #include <pthread.h>
 
 extern double*** AssistCoef;
@@ -45,6 +47,18 @@ static long g_validationMatrixDiagonalBlocks = 0;
 static long g_validationMatrixInvertibleDiagonalBlocks = 0;
 static int g_validationInterfaceDofInvariantValid = 0;
 static long g_validationInterfaceDofInvariantFailures = 0;
+static std::string g_validationTreeRootMode = "unavailable";
+static double g_validationTreeRootCenter[DIMENSION] = { 0.0, 0.0, 0.0 };
+static double g_validationTreeRootLength[DIMENSION] = { 0.0, 0.0, 0.0 };
+static double g_validationTreeRootAspectRatio = 0.0;
+static long g_validationTreeLeafCount = 0;
+static long g_validationTreeMaxLevel = 0;
+static long g_validationTreeMaxLeafPointCount = 0;
+static long g_validationTreeDegenerateLeafCount = 0;
+static long g_validationTreeMaxDepthLeafCount = 0;
+static long g_validationTreeFallbackAssignmentCount = 0;
+static long g_validationTreeDuplicatePointCount = 0;
+static long g_validationTreeMissingPointCount = 0;
 
 static long ElementLocalNodeId(long ele, int localNode);
 static int InterfaceLocalAForB(const InterfacePair& itf, int localB);
@@ -413,6 +427,22 @@ void WriteMultiDomainValidationMetrics(FILE* fp)
 	fprintf(fp, "MultiDomainMatrixInvertibleDiagonalBlocks=%ld\n", g_validationMatrixInvertibleDiagonalBlocks);
 	fprintf(fp, "MultiDomainInterfaceDofInvariantValid=%d\n", g_validationInterfaceDofInvariantValid);
 	fprintf(fp, "MultiDomainInterfaceDofInvariantFailures=%ld\n", g_validationInterfaceDofInvariantFailures);
+	fprintf(fp, "TreeRootMode=%s\n", g_validationTreeRootMode.c_str());
+	fprintf(fp, "TreeRootCenterX=%.17g\n", g_validationTreeRootCenter[0]);
+	fprintf(fp, "TreeRootCenterY=%.17g\n", g_validationTreeRootCenter[1]);
+	fprintf(fp, "TreeRootCenterZ=%.17g\n", g_validationTreeRootCenter[2]);
+	fprintf(fp, "TreeRootLengthX=%.17g\n", g_validationTreeRootLength[0]);
+	fprintf(fp, "TreeRootLengthY=%.17g\n", g_validationTreeRootLength[1]);
+	fprintf(fp, "TreeRootLengthZ=%.17g\n", g_validationTreeRootLength[2]);
+	fprintf(fp, "TreeRootAspectRatio=%.17g\n", g_validationTreeRootAspectRatio);
+	fprintf(fp, "TreeLeafCount=%ld\n", g_validationTreeLeafCount);
+	fprintf(fp, "TreeMaxLevel=%ld\n", g_validationTreeMaxLevel);
+	fprintf(fp, "TreeMaxLeafPointCount=%ld\n", g_validationTreeMaxLeafPointCount);
+	fprintf(fp, "TreeDegenerateLeafCount=%ld\n", g_validationTreeDegenerateLeafCount);
+	fprintf(fp, "TreeMaxDepthLeafCount=%ld\n", g_validationTreeMaxDepthLeafCount);
+	fprintf(fp, "TreeFallbackAssignmentCount=%ld\n", g_validationTreeFallbackAssignmentCount);
+	fprintf(fp, "TreeDuplicatePointCount=%ld\n", g_validationTreeDuplicatePointCount);
+	fprintf(fp, "TreeMissingPointCount=%ld\n", g_validationTreeMissingPointCount);
 }
 
 static int IsZeroBlock9(const double block9[9])
@@ -1302,16 +1332,9 @@ void MultiDomainCCSRBuilder::BuildDense(std::vector<double>& out) const
 	}
 }
 
-int ReadOptionalMultiDomainInput(FILE* input, MultiDomainInputConfig& config)
+// This path deliberately retains the historical parsing/default rules.
+static int ReadLegacyMultiDomainInput(FILE* input, int domainCount, MultiDomainInputConfig& config)
 {
-	config = MultiDomainInputConfig();
-	if (!input)
-		return 0;
-
-	int domainCount = 1;
-	if (fscanf_s(input, "%d", &domainCount) != 1)
-		return 0;
-
 	if (domainCount <= 0)
 	{
 		printf("Invalid DomainCount %d.\n", domainCount);
@@ -1361,6 +1384,158 @@ int ReadOptionalMultiDomainInput(FILE* input, MultiDomainInputConfig& config)
 	return 1;
 }
 
+static bool ReadV2Long(FILE* input, long& value)
+{
+	char token[128];
+	if (fscanf_s(input, "%127s", token, (unsigned)sizeof(token)) != 1)
+		return false;
+	char* end = 0;
+	errno = 0;
+	value = strtol(token, &end, 10);
+	return errno != ERANGE && end != token && *end == '\0';
+}
+
+static bool ReadV2Double(FILE* input, double& value)
+{
+	char token[128];
+	if (fscanf_s(input, "%127s", token, (unsigned)sizeof(token)) != 1)
+		return false;
+	char* end = 0;
+	errno = 0;
+	value = strtod(token, &end);
+	return errno != ERANGE && end != token && *end == '\0' && IsFiniteScalar(value);
+}
+
+static int ReadExplicitMultiDomainInput(FILE* input, MultiDomainInputConfig& config)
+{
+	config.formatVersion = 2;
+	config.enabled = true;
+	config.hasExplicitInterfaces = true;
+	long count = 0;
+	if (!ReadV2Long(input, count) || count <= 0 || count > (std::numeric_limits<int>::max)())
+	{
+		printf("MultiDomain V2: invalid domain count.\n");
+		return -1;
+	}
+	config.domainCount = (int)count;
+	long expectedBegin = 0;
+	for (int d = 0; d < config.domainCount; ++d)
+	{
+		long id = 0, start = 0, size = 0;
+		DomainMaterialInput mat;
+		if (!ReadV2Long(input, id) || !ReadV2Long(input, start) || !ReadV2Long(input, size) ||
+			!ReadV2Double(input, mat.E) || !ReadV2Double(input, mat.v) || !ReadV2Double(input, mat.Rou))
+		{
+			printf("MultiDomain V2: invalid/truncated domain record %d.\n", d + 1);
+			return -1;
+		}
+		if (id != (long)d + 1 || start <= 0 || size <= 0 || start - 1 != expectedBegin ||
+			size > (std::numeric_limits<long>::max)() - expectedBegin)
+		{
+			printf("MultiDomain V2: domain %d requires ordered IDs, positive count and contiguous range.\n", d + 1);
+			return -1;
+		}
+		if (mat.E <= 0 || mat.Rou <= 0 || mat.v <= -1 || mat.v >= 0.5)
+		{
+			printf("MultiDomain V2: invalid material for domain %d.\n", d + 1);
+			return -1;
+		}
+		mat.id = (int)id;
+		config.materials.push_back(mat);
+		config.elementRanges.push_back(DomainElementRange(expectedBegin, size));
+		expectedBegin += size;
+	}
+	long interfaces = 0;
+	if (!ReadV2Long(input, interfaces) || interfaces < 0 || interfaces > expectedBegin / 2)
+	{
+		printf("MultiDomain V2: missing/invalid explicit interface count.\n");
+		return -1;
+	}
+	for (long i = 0; i < interfaces; ++i)
+	{
+		long da = 0, ea = 0, db = 0, eb = 0, sign = 0;
+		if (!ReadV2Long(input, da) || !ReadV2Long(input, ea) || !ReadV2Long(input, db) ||
+			!ReadV2Long(input, eb) || !ReadV2Long(input, sign) ||
+			da < 1 || da > config.domainCount || db < 1 || db > config.domainCount || da == db ||
+			ea < 1 || ea > expectedBegin || eb < 1 || eb > expectedBegin || (sign != -1 && sign != 1))
+		{
+			printf("MultiDomain V2: invalid/truncated interface record %ld.\n", i + 1);
+			return -1;
+		}
+		InterfacePair itf;
+		itf.domainA = (int)da;
+		itf.domainB = (int)db;
+		itf.eleA = ea;
+		itf.eleB = eb;
+		itf.normalSign = (int)sign;
+		config.interfaces.push_back(itf);
+	}
+	int trailing = 0;
+	do { trailing = fgetc(input); } while (trailing != EOF && isspace((unsigned char)trailing));
+	if (trailing != EOF)
+	{
+		printf("MultiDomain V2: unexpected data after interface table.\n");
+		return -1;
+	}
+	return 1;
+}
+
+int ReadOptionalMultiDomainInput(FILE* input, MultiDomainInputConfig& config)
+{
+	config = MultiDomainInputConfig();
+	if (!input)
+		return 0;
+	int first = 1;
+	if (fscanf_s(input, "%d", &first) != 1)
+		return 0;
+	if (first == -2)
+		return ReadExplicitMultiDomainInput(input, config);
+	return ReadLegacyMultiDomainInput(input, first, config);
+}
+
+static bool ResolveDomainElementRanges(const MultiDomainInputConfig& config,
+	long eleNum, int domainCount, std::vector<DomainElementRange>& ranges)
+{
+	ranges.clear();
+	if (config.enabled && config.formatVersion == 2)
+	{
+		if ((int)config.elementRanges.size() != domainCount ||
+			(int)config.materials.size() != domainCount || !config.hasExplicitInterfaces)
+		{
+			printf("MultiDomain V2: incomplete explicit domain configuration.\n");
+			return false;
+		}
+		long begin = 0;
+		for (int d = 0; d < domainCount; ++d)
+		{
+			const DomainElementRange& r = config.elementRanges[(size_t)d];
+			if (r.begin != begin || r.count <= 0 || begin > eleNum || r.count > eleNum - begin)
+			{
+				printf("MultiDomain V2: domain %d range is invalid for model (%ld elements).\n", d + 1, eleNum);
+				return false;
+			}
+			begin += r.count;
+		}
+		if (begin != eleNum)
+		{
+			printf("MultiDomain V2: ranges cover %ld elements, model contains %ld.\n", begin, eleNum);
+			return false;
+		}
+		ranges = config.elementRanges;
+		return true;
+	}
+	long begin = 0;
+	for (int d = 0; d < domainCount; ++d)
+	{
+		long base = eleNum / domainCount;
+		long extra = eleNum % domainCount;
+		long count = base + (d < extra ? 1 : 0);
+		ranges.push_back(DomainElementRange(begin, count));
+		begin += count;
+	}
+	return true;
+}
+
 int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 	long eleNum,
 	long nodeNum,
@@ -1376,6 +1551,9 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 	model.nodeCount = nodeNum;
 
 	int domainCount = config.enabled ? config.domainCount : 1;
+	std::vector<DomainElementRange> ranges;
+	if (!ResolveDomainElementRanges(config, eleNum, domainCount, ranges))
+		return 0;
 	model.domains.resize((size_t)domainCount);
 	model.materialContext.mats.resize((size_t)domainCount);
 
@@ -1410,12 +1588,10 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 		}
 	}
 
-	long eleBegin = 0;
 	for (int d = 0; d < domainCount; ++d)
 	{
-		long base = eleNum / domainCount;
-		long extra = eleNum % domainCount;
-		long eleCount = base + (d < extra ? 1 : 0);
+		long eleBegin = ranges[(size_t)d].begin;
+		long eleCount = ranges[(size_t)d].count;
 
 		Domain& domain = model.domains[(size_t)d];
 		domain.id = d;
@@ -1432,10 +1608,22 @@ int BuildMultiDomainModel(const MultiDomainInputConfig& config,
 			domain.elementIds.push_back(id);
 			domain.boundaryNodeIds.push_back(ElementLocalNodeId(id, 0));
 		}
-		eleBegin += eleCount;
 	}
 
-	if (config.enabled && config.hasExplicitInterfaces)
+	if (config.enabled && config.formatVersion == 2)
+	{
+		printf("MultiDomain input format = 2 (explicit element ranges)\n");
+		for (size_t i = 0; i < config.interfaces.size(); ++i)
+		{
+			InterfacePair itf = config.interfaces[i];
+			--itf.domainA;
+			--itf.domainB;
+			--itf.eleA;
+			--itf.eleB;
+			model.interfaces.push_back(itf);
+		}
+	}
+	else if (config.enabled && config.hasExplicitInterfaces)
 	{
 		bool zeroBasedEleIds = false;
 		bool zeroBasedItfDomainIds = false;
@@ -3490,6 +3678,252 @@ static void AssignCCSRBlockToLocalPreconditioner(const CCSRMat& matrix,
 	local.assign(subPre, 3 * localRow + 1, 3 * localCol + 1, 3, 3);
 }
 
+static int ReadMultiDomainTreeRootMode(std::string& mode)
+{
+	char* value = 0;
+	size_t valueLen = 0;
+	if (_dupenv_s(&value, &valueLen, "DBEM_MULTIDOMAIN_TREE_ROOT") != 0)
+		return 0;
+	mode = value ? value : "cuboid";
+	if (value)
+		free(value);
+	for (size_t i = 0; i < mode.size(); ++i)
+		mode[i] = (char)std::tolower((unsigned char)mode[i]);
+	if (mode != "cuboid" && mode != "cube")
+	{
+		printf("Invalid DBEM_MULTIDOMAIN_TREE_ROOT='%s'; expected cuboid or cube.\n", mode.c_str());
+		return 0;
+	}
+	return 1;
+}
+
+static int TreeGeometryNearlyEqual(double actual, double expected)
+{
+	double scale = (std::max)(1.0, (std::max)(fabs(actual), fabs(expected)));
+	return fabs(actual - expected) <= 1.0e-12 * scale;
+}
+
+struct PreconditionerTreeValidation
+{
+	long maxLevel;
+	long maxLeafPointCount;
+	long duplicatePointCount;
+	long missingPointCount;
+	long leafPointTotal;
+	int valid;
+
+	PreconditionerTreeValidation()
+		: maxLevel(0), maxLeafPointCount(0), duplicatePointCount(0),
+		missingPointCount(0), leafPointTotal(0), valid(1) {}
+};
+
+static void ValidatePreconditionerTreeNode(Tree* node,
+	Tree* expectedFather,
+	int childPosition,
+	long pointCount,
+	long maxLeafPointCount,
+	std::vector<int>& pointUses,
+	PreconditionerTreeValidation& validation)
+{
+	if (!node || !validation.valid)
+		return;
+	if (node->m_Father != expectedFather)
+	{
+		printf("Tree validation failed: invalid father pointer at level %ld.\n", node->m_Level);
+		validation.valid = 0;
+		return;
+	}
+	if (node->m_Level > validation.maxLevel)
+		validation.maxLevel = node->m_Level;
+
+	if (expectedFather)
+	{
+		int bit = 1;
+		for (int axis = 0; axis < DIMENSION; ++axis)
+		{
+			double expectedLength = 0.5 * expectedFather->m_Box.length[axis];
+			double offset = 0.25 * expectedFather->m_Box.length[axis];
+			double expectedCenter = expectedFather->m_Box.center.pt[axis] +
+				((bit & childPosition) == 0 ? -offset : offset);
+			if (!TreeGeometryNearlyEqual(node->m_Box.length[axis], expectedLength) ||
+				!TreeGeometryNearlyEqual(node->m_Box.center.pt[axis], expectedCenter))
+			{
+				printf("Tree validation failed: invalid child geometry at level %ld axis %d.\n",
+					node->m_Level, axis);
+				validation.valid = 0;
+				return;
+			}
+			bit <<= 1;
+		}
+	}
+
+	int childCount = 0;
+	for (int child = 0; child < CHILDNUMBER; ++child)
+	{
+		if (node->m_Children[child])
+			++childCount;
+	}
+	if (childCount == 0)
+	{
+		if (!node->Flag)
+		{
+			printf("Tree validation failed: childless node is not marked as a leaf at level %ld.\n", node->m_Level);
+			validation.valid = 0;
+			return;
+		}
+		if (node->m_PointCount > validation.maxLeafPointCount)
+			validation.maxLeafPointCount = node->m_PointCount;
+		if (node->m_PointCount > maxLeafPointCount &&
+			node->m_LeafReason != TreeLeafDegenerate &&
+			node->m_LeafReason != TreeLeafMaxDepth)
+		{
+			printf("Tree validation failed: oversized leaf has no forced-leaf reason at level %ld.\n", node->m_Level);
+			validation.valid = 0;
+			return;
+		}
+
+		long listedPoints = 0;
+		for (PointList* item = node->m_PointList; item; item = item->next)
+		{
+			if (item->PointID < 0 || item->PointID >= pointCount)
+			{
+				printf("Tree validation failed: point id %ld is outside 0..%ld.\n",
+					item->PointID, pointCount - 1);
+				validation.valid = 0;
+				return;
+			}
+			++pointUses[(size_t)item->PointID];
+			++listedPoints;
+		}
+		if (listedPoints != node->m_PointCount)
+		{
+			printf("Tree validation failed: leaf list count %ld != stored count %ld at level %ld.\n",
+				listedPoints, node->m_PointCount, node->m_Level);
+			validation.valid = 0;
+			return;
+		}
+		validation.leafPointTotal += listedPoints;
+		return;
+	}
+
+	if (node->Flag)
+	{
+		printf("Tree validation failed: node with children is marked as a leaf at level %ld.\n", node->m_Level);
+		validation.valid = 0;
+		return;
+	}
+	for (int child = 0; child < CHILDNUMBER; ++child)
+	{
+		if (node->m_Children[child])
+			ValidatePreconditionerTreeNode(node->m_Children[child], node, child,
+				pointCount, maxLeafPointCount, pointUses, validation);
+	}
+}
+
+static int ValidatePreconditionerTree(Tree* root,
+	PointerOfLeaf& leaves,
+	Point* points,
+	long pointCount,
+	long maxLeafPointCount,
+	PreconditionerTreeValidation& validation)
+{
+	if (!root || !points || pointCount <= 0 || leaves.PointCount != pointCount)
+		return 0;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		if (!IsFiniteScalar(root->m_Box.center.pt[axis]) ||
+			!IsFiniteScalar(root->m_Box.length[axis]) || root->m_Box.length[axis] <= 0.0)
+		{
+			printf("Tree validation failed: invalid root geometry on axis %d.\n", axis);
+			return 0;
+		}
+	}
+	for (long point = 0; point < pointCount; ++point)
+	{
+		if (!Isin(points[point], root->m_Box))
+		{
+			printf("Tree validation failed: point %ld lies outside the root box.\n", point);
+			return 0;
+		}
+	}
+
+	std::vector<int> pointUses((size_t)pointCount, 0);
+	ValidatePreconditionerTreeNode(root, 0, -1, pointCount, maxLeafPointCount, pointUses, validation);
+	if (!validation.valid)
+		return 0;
+	for (long point = 0; point < pointCount; ++point)
+	{
+		if (pointUses[(size_t)point] == 0)
+			++validation.missingPointCount;
+		else if (pointUses[(size_t)point] > 1)
+			validation.duplicatePointCount += pointUses[(size_t)point] - 1;
+	}
+	if (validation.leafPointTotal != pointCount || validation.missingPointCount != 0 ||
+		validation.duplicatePointCount != 0)
+	{
+		printf("Tree validation failed: leafPointTotal=%ld pointCount=%ld missing=%ld duplicate=%ld.\n",
+			validation.leafPointTotal, pointCount,
+			validation.missingPointCount, validation.duplicatePointCount);
+		return 0;
+	}
+	return 1;
+}
+
+static int ValidateTreeRenumbering(const long* reorderedPointIds, long pointCount)
+{
+	if (!reorderedPointIds || pointCount <= 0)
+		return 0;
+	std::vector<int> uses((size_t)pointCount, 0);
+	for (long i = 0; i < pointCount; ++i)
+	{
+		long point = reorderedPointIds[i];
+		if (point < 0 || point >= pointCount)
+			return 0;
+		++uses[(size_t)point];
+	}
+	for (long point = 0; point < pointCount; ++point)
+	{
+		if (uses[(size_t)point] != 1)
+			return 0;
+	}
+	return 1;
+}
+
+static void WriteTreeLeafMapCsv(PointerOfLeaf& leaves, Point* points, long pointCount)
+{
+	if (!MultiDomainValidationOutputEnabled() || !points || pointCount <= 0)
+		return;
+	std::map<Tree*, long> leafIds;
+	for (long leaf = 0; leaf < leaves.LeafCount; ++leaf)
+		leafIds[leaves.LeafPointer[leaf]] = leaf;
+
+	std::string path = DBEMOutputPath("tree_leaf_map.csv");
+	FILE* fp = 0;
+	fopen_s(&fp, path.c_str(), "w");
+	if (!fp)
+	{
+		printf("Cannot open %s for writing.\n", path.c_str());
+		return;
+	}
+	fprintf(fp, "pointId,x,y,z,leafId,leafLevel,leafCenterX,leafCenterY,leafCenterZ,leafLengthX,leafLengthY,leafLengthZ\n");
+	for (long point = 0; point < pointCount; ++point)
+	{
+		Tree* leaf = leaves.PointPointer[point];
+		long leafId = leafIds.find(leaf) != leafIds.end() ? leafIds[leaf] : -1;
+		fprintf(fp, "%ld,%.17g,%.17g,%.17g,%ld,%ld,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
+			point,
+			points[point].pt[0], points[point].pt[1], points[point].pt[2],
+			leafId, leaf ? leaf->m_Level : -1,
+			leaf ? leaf->m_Box.center.pt[0] : 0.0,
+			leaf ? leaf->m_Box.center.pt[1] : 0.0,
+			leaf ? leaf->m_Box.center.pt[2] : 0.0,
+			leaf ? leaf->m_Box.length[0] : 0.0,
+			leaf ? leaf->m_Box.length[1] : 0.0,
+			leaf ? leaf->m_Box.length[2] : 0.0);
+	}
+	fclose(fp);
+}
+
 static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 	PreConditioner& pre,
 	long pointCount,
@@ -3501,13 +3935,88 @@ static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 	if (!elements || pointCount <= 0 || maxLeafPointCount <= 0 || matrix.n != pointCount)
 		return 0;
 
-	Cube globalBox;
-	Tree* treePre;
+	std::string rootMode;
+	if (!ReadMultiDomainTreeRootMode(rootMode))
+		return 0;
+
+	Tree* treePre = 0;
 	PointerOfLeaf leafPre;
-	AssignCubeSize(elements[0].m_nodelist, pointCount, globalBox);
-	InitRoot(treePre, globalBox, pointCount);
+	leafPre.LeafCount = 0;
+	leafPre.PointCount = 0;
+	leafPre.MaxLeafPointCount = 0;
+	leafPre.LeafPointer = 0;
+	leafPre.PointPointer = 0;
+	AniCube rootBox;
+	if (rootMode == "cuboid")
+	{
+		if (!AssignPaddedBoundingBox(elements[0].m_nodelist, pointCount, rootBox, 1.02))
+		{
+			printf("MultiDomain cuboid root construction failed.\n");
+			return 0;
+		}
+		InitRoot(treePre, rootBox, pointCount);
+	}
+	else
+	{
+		Cube cube;
+		if (!AssignCubeSize(elements[0].m_nodelist, pointCount, cube))
+		{
+			printf("MultiDomain cube root construction failed.\n");
+			return 0;
+		}
+		rootBox.center = cube.center;
+		for (int axis = 0; axis < DIMENSION; ++axis)
+			rootBox.length[axis] = cube.length;
+		InitRoot(treePre, cube, pointCount);
+	}
+
+	ResetTreeBuildStats();
 	CreateTree(treePre, elements[0].m_nodelist, maxLeafPointCount);
 	CreateLeafPointer(leafPre, treePre, pointCount);
+	PreconditionerTreeValidation treeValidation;
+	if (!ValidatePreconditionerTree(treePre, leafPre, elements[0].m_nodelist,
+		pointCount, maxLeafPointCount, treeValidation))
+	{
+		DeleteTree(treePre);
+		DeleteLeafPointer(leafPre);
+		return 0;
+	}
+
+	TreeBuildStats buildStats = GetTreeBuildStats();
+	g_validationTreeRootMode = rootMode;
+	double minRootLength = rootBox.length[0];
+	double maxRootLength = rootBox.length[0];
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		g_validationTreeRootCenter[axis] = rootBox.center.pt[axis];
+		g_validationTreeRootLength[axis] = rootBox.length[axis];
+		if (rootBox.length[axis] < minRootLength)
+			minRootLength = rootBox.length[axis];
+		if (rootBox.length[axis] > maxRootLength)
+			maxRootLength = rootBox.length[axis];
+	}
+	g_validationTreeRootAspectRatio = minRootLength > 0.0 ? maxRootLength / minRootLength : 0.0;
+	g_validationTreeLeafCount = leafPre.LeafCount;
+	g_validationTreeMaxLevel = treeValidation.maxLevel;
+	g_validationTreeMaxLeafPointCount = treeValidation.maxLeafPointCount;
+	g_validationTreeDegenerateLeafCount = buildStats.DegenerateLeafCount;
+	g_validationTreeMaxDepthLeafCount = buildStats.MaxDepthLeafCount;
+	g_validationTreeFallbackAssignmentCount = buildStats.FallbackAssignmentCount;
+	g_validationTreeDuplicatePointCount = treeValidation.duplicatePointCount;
+	g_validationTreeMissingPointCount = treeValidation.missingPointCount;
+
+	printf("MultiDomain preconditioner tree: mode=%s center=(%.17g,%.17g,%.17g) lengths=(%.17g,%.17g,%.17g) aspectRatio=%.6g leaves=%ld maxLevel=%ld maxLeafPoints=%ld degenerateLeaves=%ld maxDepthLeaves=%ld fallbackAssignments=%ld.\n",
+		rootMode.c_str(),
+		rootBox.center.pt[0], rootBox.center.pt[1], rootBox.center.pt[2],
+		rootBox.length[0], rootBox.length[1], rootBox.length[2],
+		g_validationTreeRootAspectRatio,
+		leafPre.LeafCount,
+		treeValidation.maxLevel,
+		treeValidation.maxLeafPointCount,
+		buildStats.DegenerateLeafCount,
+		buildStats.MaxDepthLeafCount,
+		buildStats.FallbackAssignmentCount);
+	WriteTreeLeafMapCsv(leafPre, elements[0].m_nodelist, pointCount);
 
 	pre.m_LeafCount = leafPre.LeafCount;
 	pre.m_LeafPointCount = new long[leafPre.LeafCount];
@@ -3524,6 +4033,14 @@ static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 		pre.m_LeafBeginID[i] = leafPre.LeafPointer[i]->m_BeginID;
 	}
 	RenumberPointID(leafPre, pre.m_RePID);
+	if (!ValidateTreeRenumbering(pre.m_RePID, pointCount))
+	{
+		printf("Tree validation failed: RenumberPointID did not produce a permutation.\n");
+		DeleteTree(treePre);
+		DeleteLeafPointer(leafPre);
+		pre.Finish();
+		return 0;
+	}
 	for (long i = 0; i < pointCount; ++i)
 	{
 		pre.IID[i] = 3 * i;
@@ -3554,7 +4071,31 @@ static int BuildMappedLeafPreConditioner(DSquareElement* elements,
 	}
 
 	for (long leaf = 0; leaf < pre.m_LeafCount; ++leaf)
-		inv_mat(pre.m_PreM[leaf], pre.m_PreM[leaf].m);
+	{
+		if (inv_mat(pre.m_PreM[leaf], pre.m_PreM[leaf].m) < 0)
+		{
+			printf("MultiDomain mapped leaf preconditioner inversion failed at leaf %ld with %ld points.\n",
+				leaf, pre.m_LeafPointCount[leaf]);
+			DeleteTree(treePre);
+			DeleteLeafPointer(leafPre);
+			pre.Finish();
+			return 0;
+		}
+		for (long row = 0; row < pre.m_PreM[leaf].m; ++row)
+		{
+			for (long col = 0; col < pre.m_PreM[leaf].n; ++col)
+			{
+				if (!IsFiniteScalar(pre.m_PreM[leaf].a[row][col]))
+				{
+					printf("MultiDomain mapped leaf preconditioner produced a non-finite inverse at leaf %ld.\n", leaf);
+					DeleteTree(treePre);
+					DeleteLeafPointer(leafPre);
+					pre.Finish();
+					return 0;
+				}
+			}
+		}
+	}
 
 	printf("MultiDomain mapped leaf preconditioner stats: leaves=%ld pointCount=%ld maxLeafPointCount=%ld localBlocks=%ld missingLocalBlocks=%ld.\n",
 		pre.m_LeafCount, pointCount, maxLeafPointCount, localBlocks, missingBlocks);
@@ -3701,6 +4242,21 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	g_validationMatrixInvertibleDiagonalBlocks = 0;
 	g_validationInterfaceDofInvariantValid = 0;
 	g_validationInterfaceDofInvariantFailures = 0;
+	g_validationTreeRootMode = "unavailable";
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		g_validationTreeRootCenter[axis] = 0.0;
+		g_validationTreeRootLength[axis] = 0.0;
+	}
+	g_validationTreeRootAspectRatio = 0.0;
+	g_validationTreeLeafCount = 0;
+	g_validationTreeMaxLevel = 0;
+	g_validationTreeMaxLeafPointCount = 0;
+	g_validationTreeDegenerateLeafCount = 0;
+	g_validationTreeMaxDepthLeafCount = 0;
+	g_validationTreeFallbackAssignmentCount = 0;
+	g_validationTreeDuplicatePointCount = 0;
+	g_validationTreeMissingPointCount = 0;
 
 	GlobalDofMap dofMap;
 	if (!dofMap.Build(model, elements, model.elementCount))

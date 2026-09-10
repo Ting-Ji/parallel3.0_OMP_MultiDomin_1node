@@ -55,15 +55,25 @@ struct DomainMaterialInput {
 	double Rou;
 };
 
+// Internal zero-based contiguous range. Input V2 converts its 1-based start
+// exactly once; legacy input resolves its ranges using the original split rule.
+struct DomainElementRange {
+	long begin;
+	long count;
+	DomainElementRange(long first = 0, long size = 0) : begin(first), count(size) {}
+};
+
 struct MultiDomainInputConfig {
+	int formatVersion;
 	bool enabled;
 	int domainCount;
 	bool hasExplicitInterfaces;
 	std::vector<DomainMaterialInput> materials;
 	std::vector<InterfacePair> interfaces;
+	std::vector<DomainElementRange> elementRanges;
 
 	MultiDomainInputConfig()
-		: enabled(false), domainCount(1), hasExplicitInterfaces(false) {}
+		: formatVersion(1), enabled(false), domainCount(1), hasExplicitInterfaces(false) {}
 };
 
 class DomainMaterialContext {

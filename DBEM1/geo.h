@@ -41,6 +41,9 @@ inline double Dist(Point& pt1,Point& pt2)
 //if point is inside cube. return 1 means yes，0 means no
 int Isin(Point& pt,Cube& cb);
 
+//if point is inside an axis-aligned cuboid. return 1 means yes, 0 means no
+int Isin(Point& pt,const AniCube& cb);
+
 // 将节点用立方体包围
 int AssignBox(Cube& m_cube,Point* m_point,long PointNum);
 
@@ -48,7 +51,10 @@ int AssignBox(Cube& m_cube,Point* m_point,long PointNum);
 int AssignCubeSize(Point* PtList,long PtNum,Cube& cb);
 
 //determain cube position and size according to point list
-int AssignCubeSize(Point* PtList,long PtNum,AniCube& cb); 
+int AssignCubeSize(Point* PtList,long PtNum,AniCube& cb);
+
+//determine a padded axis-aligned bounding box according to the point list
+int AssignPaddedBoundingBox(Point* PtList,long PtNum,AniCube& cb,double paddingFactor = 1.02);
 
 // get max length of the point list
 double MaxLength(Point* PtList,long PtNum); 
@@ -56,6 +62,9 @@ double MaxLength_adapt(Point* PtList, long PtNum);
 
 //create sub-cubes of a cube according to the position
 void CreateSubCube(const Cube& father,Cube& child,int position);
+
+//create one of the eight child cuboids using the same position bit convention
+void CreateSubBox(const AniCube& father,AniCube& child,int position);
 
 //-------------------------------------------------------------------------------------------
 #endif

@@ -1,5 +1,7 @@
 ﻿#include "tree.h"
 
+#include <limits>
+
 //------------------------------------------------------------------
 //
 //      树类的定义实现
@@ -8,8 +10,89 @@
 //
 //------------------------------------------------------------------
 
+static const long TREE_MAX_LEVEL = 64;
+static TreeBuildStats g_treeBuildStats = { 0, 0, 0 };
+
+void ResetTreeBuildStats()
+{
+	g_treeBuildStats.FallbackAssignmentCount = 0;
+	g_treeBuildStats.DegenerateLeafCount = 0;
+	g_treeBuildStats.MaxDepthLeafCount = 0;
+}
+
+TreeBuildStats GetTreeBuildStats()
+{
+	return g_treeBuildStats;
+}
+
+static void InitializeTreeNodeLinks(Tree* tree)
+{
+	if (!tree)
+		return;
+	for (int i = 0; i < CHILDNUMBER; ++i)
+		tree->m_Children[i] = 0;
+	tree->m_Neibor = 0;
+	tree->m_Interaction = 0;
+	tree->m_LeafReason = TreeLeafNone;
+}
+
+static void MarkTreeLeaf(Tree* tree, TreeLeafReason reason)
+{
+	if (!tree)
+		return;
+	tree->Flag = 1;
+	for (int i = 0; i < CHILDNUMBER; ++i)
+		tree->m_Children[i] = 0;
+	tree->m_Neibor = 0;
+	tree->m_Interaction = 0;
+	tree->m_LeafReason = reason;
+	if (reason == TreeLeafDegenerate)
+		++g_treeBuildStats.DegenerateLeafCount;
+	else if (reason == TreeLeafMaxDepth)
+		++g_treeBuildStats.MaxDepthLeafCount;
+}
+
+static int TreePointSetIndistinguishable(Tree* tree, Point* points)
+{
+	if (!tree || !points || !tree->m_PointList || tree->m_PointCount <= 1)
+		return 1;
+
+	double rmin[DIMENSION], rmax[DIMENSION];
+	double scale = 1.0;
+	PointList* item = tree->m_PointList;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		double value = points[item->PointID].pt[axis];
+		rmin[axis] = value;
+		rmax[axis] = value;
+		if (fabs(value) > scale)
+			scale = fabs(value);
+	}
+	for (item = item->next; item; item = item->next)
+	{
+		for (int axis = 0; axis < DIMENSION; ++axis)
+		{
+			double value = points[item->PointID].pt[axis];
+			if (value < rmin[axis])
+				rmin[axis] = value;
+			if (value > rmax[axis])
+				rmax[axis] = value;
+			if (fabs(value) > scale)
+				scale = fabs(value);
+		}
+	}
+
+	const double tolerance = 64.0 * (std::numeric_limits<double>::epsilon)() * scale;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		if (rmax[axis] - rmin[axis] > tolerance)
+			return 0;
+	}
+	return 1;
+}
+
 // initial the root of tree
-void InitRoot(Tree* &m_tree, const Cube& m_cube, long totalpoint)
+void InitRoot(Tree* &m_tree, const AniCube& m_box, long totalpoint)
 {
 	//m_tree:        root waiting for initialization
 	//m_cube:        geometry information of root
@@ -23,7 +106,8 @@ void InitRoot(Tree* &m_tree, const Cube& m_cube, long totalpoint)
 	m_tree->m_Level = 1;
 	m_tree->m_Father = 0;
 	m_tree->Flag = 0;
-	m_tree->m_Cube = m_cube;
+	m_tree->m_Box = m_box;
+	InitializeTreeNodeLinks(m_tree);
 
 	m_tree->m_PointList = new PointList;
 	m_tree->m_PointList->PointID = 0;
@@ -45,6 +129,16 @@ void InitRoot(Tree* &m_tree, const Cube& m_cube, long totalpoint)
 	m_tree->m_BeginID = 0;
 }
 
+// compatibility overload: legacy callers still obtain an isotropic tree
+void InitRoot(Tree* &m_tree, const Cube& m_cube, long totalpoint)
+{
+	AniCube box;
+	box.center = m_cube.center;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+		box.length[axis] = m_cube.length;
+	InitRoot(m_tree, box, totalpoint);
+}
+
 // create oct-tree structure according to the list of points
 void CreateTree(Tree* &m_tree, Point* m_plist, long max_point)
 {
@@ -61,20 +155,39 @@ void CreateTree(Tree* &m_tree, Point* m_plist, long max_point)
 	//if a leaf point
 	if (m_tree->m_PointCount <= max_point)
 	{
-		m_tree->Flag = 1;
-		for (i = 0; i < CHILDNUMBER; ++i)
-			m_tree->m_Children[i] = 0;
-		m_tree->m_Neibor = 0;
-		m_tree->m_Interaction = 0;
+		MarkTreeLeaf(m_tree, TreeLeafPointLimit);
+		return;
+	}
+	if (TreePointSetIndistinguishable(m_tree, m_plist))
+	{
+		MarkTreeLeaf(m_tree, TreeLeafDegenerate);
+		printf("Tree forced a degenerate leaf at level %ld with %ld points.\n",
+			m_tree->m_Level, m_tree->m_PointCount);
+		return;
+	}
+	if (m_tree->m_Level >= TREE_MAX_LEVEL)
+	{
+		MarkTreeLeaf(m_tree, TreeLeafMaxDepth);
+		printf("Tree reached maximum level %ld with %ld points; center=(%.17g,%.17g,%.17g) lengths=(%.17g,%.17g,%.17g).\n",
+			TREE_MAX_LEVEL,
+			m_tree->m_PointCount,
+			m_tree->m_Box.center.pt[0],
+			m_tree->m_Box.center.pt[1],
+			m_tree->m_Box.center.pt[2],
+			m_tree->m_Box.length[0],
+			m_tree->m_Box.length[1],
+			m_tree->m_Box.length[2]);
 		return;
 	}
 
 	m_tree->Flag = 0;
+	m_tree->m_LeafReason = TreeLeafNone;
 	//create children
 	for (i = 0; i < CHILDNUMBER; ++i)
 	{
 		m_tree->m_Children[i] = new Tree;
-		CreateSubCube(m_tree->m_Cube, m_tree->m_Children[i]->m_Cube, i);
+		InitializeTreeNodeLinks(m_tree->m_Children[i]);
+		CreateSubBox(m_tree->m_Box, m_tree->m_Children[i]->m_Box, i);
 		m_tree->m_Children[i]->m_Level = m_tree->m_Level + 1;
 		m_tree->m_Children[i]->m_PointList = 0;
 		m_tree->m_Children[i]->m_Father = m_tree;
@@ -92,7 +205,7 @@ void CreateTree(Tree* &m_tree, Point* m_plist, long max_point)
 		Inflag = 0;
 		for (i = 0; i < CHILDNUMBER; ++i)
 		{
-			if (Isin(m_plist[m_tree->m_PointList->PointID], m_tree->m_Children[i]->m_Cube))
+			if (Isin(m_plist[m_tree->m_PointList->PointID], m_tree->m_Children[i]->m_Box))
 			{
 				Inflag = 1;
 				NearChild = i;
@@ -102,8 +215,19 @@ void CreateTree(Tree* &m_tree, Point* m_plist, long max_point)
 		if (!Inflag)
 		{
 			//the point is not allocated successfully
+			++g_treeBuildStats.FallbackAssignmentCount;
 			for (i = 0; i < CHILDNUMBER; ++i)
-				PtDist[i] = Dist(m_plist[m_tree->m_PointList->PointID], m_tree->m_Children[i]->m_Cube.center);
+			{
+				PtDist[i] = 0.0;
+				for (int axis = 0; axis < DIMENSION; ++axis)
+				{
+					double length = m_tree->m_Children[i]->m_Box.length[axis];
+					double delta = m_plist[m_tree->m_PointList->PointID].pt[axis] -
+						m_tree->m_Children[i]->m_Box.center.pt[axis];
+					double normalized = length > 0.0 ? delta / length : delta;
+					PtDist[i] += normalized * normalized;
+				}
+			}
 			tmpvalue = PtDist[0];
 			NearChild = 0;
 			for (i = 1; i < CHILDNUMBER; ++i)
@@ -387,12 +511,15 @@ int JudgePosition(Tree* m_tree1, Tree* m_tree2)
 
 	if (m_tree1 == 0 || m_tree2 == 0 || m_tree1->m_Level != m_tree2->m_Level)
 		return -1;
-	double distance = Dist(m_tree1->m_Cube.center, m_tree2->m_Cube.center);
-	//m_tree2 is neighbor of m_tree1
-	if (distance <= 1.1*sqrt(1.0*DIMENSION)*m_tree1->m_Cube.length)
-		return 0;
-	else
-		return 1;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		double distance = fabs(m_tree1->m_Box.center.pt[axis] - m_tree2->m_Box.center.pt[axis]);
+		double neighborDistance = 1.1 * 0.5 *
+			(m_tree1->m_Box.length[axis] + m_tree2->m_Box.length[axis]);
+		if (distance > neighborDistance)
+			return 1;
+	}
+	return 0;
 }
 
 void CreateNeiInter(Tree* &m_tree)

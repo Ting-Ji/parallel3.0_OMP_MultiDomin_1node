@@ -29,6 +29,7 @@ x86/
 # DBEM local inputs, outputs, caches, and validation runs
 DBEM1/input/
 DBEM1/output/
+/DBEM1/output_rejected_*/
 DBEM1/io_check/bin/
 DBEM1/io_check/Release/
 output/

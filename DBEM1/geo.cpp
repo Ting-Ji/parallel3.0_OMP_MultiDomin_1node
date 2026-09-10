@@ -1,5 +1,6 @@
 ﻿#include "math.h"
 #include "Geo.h"
+#include <limits>
 //--------------------------------------------------------------------------------------
 
 
@@ -23,6 +24,19 @@ int Isin(Point& pt, Cube& cb)
 	return flag;
 }
 
+//if point is inside an axis-aligned cuboid. return 1 means yes, 0 means no
+int Isin(Point& pt, const AniCube& cb)
+{
+	for (int i = 0; i < DIMENSION; ++i)
+	{
+		double ds = cb.center.pt[i] - pt.pt[i];
+		double half = 0.5 * cb.length[i];
+		if (ds * ds > half * half * 1.0001)
+			return 0;
+	}
+	return 1;
+}
+
 //create sub-cubes of a cube according to the position
 void CreateSubCube(const Cube& father, Cube& child, int position)
 {
@@ -34,6 +48,19 @@ void CreateSubCube(const Cube& father, Cube& child, int position)
 	for (i = 0; i < DIMENSION; i++)
 	{
 		child.center.pt[i] = father.center.pt[i] + ((bit&position) == 0 ? -1 : 1)*half;
+		bit <<= 1;
+	}
+}
+
+//create one of the eight child cuboids using the existing x/y/z bit convention
+void CreateSubBox(const AniCube& father, AniCube& child, int position)
+{
+	int bit = 1;
+	for (int i = 0; i < DIMENSION; ++i)
+	{
+		child.length[i] = 0.5 * father.length[i];
+		const double offset = 0.25 * father.length[i];
+		child.center.pt[i] = father.center.pt[i] + ((bit & position) == 0 ? -offset : offset);
 		bit <<= 1;
 	}
 }
@@ -135,6 +162,66 @@ int AssignCubeSize(Point* PtList, long PtNum, AniCube& cb)
 	{
 		cb.center.pt[i] = rmin[i] + 0.5*(rmax[i] - rmin[i]);
 		cb.length[i] = 1.0*(rmax[i] - rmin[i]);
+	}
+
+	return 1;
+}
+
+//determine a padded axis-aligned bounding box according to point list
+int AssignPaddedBoundingBox(Point* PtList, long PtNum, AniCube& cb, double paddingFactor)
+{
+	if (!PtList || PtNum <= 0 || !_finite(paddingFactor) || paddingFactor < 1.0)
+		return 0;
+
+	double rmin[DIMENSION], rmax[DIMENSION];
+	double coordinateScale = 1.0;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		if (!_finite(PtList[0].pt[axis]))
+			return 0;
+		rmin[axis] = PtList[0].pt[axis];
+		rmax[axis] = PtList[0].pt[axis];
+		double magnitude = fabs(PtList[0].pt[axis]);
+		if (magnitude > coordinateScale)
+			coordinateScale = magnitude;
+	}
+
+	for (long point = 1; point < PtNum; ++point)
+	{
+		for (int axis = 0; axis < DIMENSION; ++axis)
+		{
+			double value = PtList[point].pt[axis];
+			if (!_finite(value))
+				return 0;
+			if (value < rmin[axis])
+				rmin[axis] = value;
+			if (value > rmax[axis])
+				rmax[axis] = value;
+			double magnitude = fabs(value);
+			if (magnitude > coordinateScale)
+				coordinateScale = magnitude;
+		}
+	}
+
+	double extent[DIMENSION];
+	double maxExtent = 0.0;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		extent[axis] = rmax[axis] - rmin[axis];
+		if (extent[axis] > maxExtent)
+			maxExtent = extent[axis];
+	}
+	if (maxExtent > coordinateScale)
+		coordinateScale = maxExtent;
+
+	const double minimumExtent = 64.0 * (std::numeric_limits<double>::epsilon)() * coordinateScale;
+	for (int axis = 0; axis < DIMENSION; ++axis)
+	{
+		cb.center.pt[axis] = rmin[axis] + 0.5 * extent[axis];
+		const double protectedExtent = extent[axis] > minimumExtent ? extent[axis] : minimumExtent;
+		cb.length[axis] = paddingFactor * protectedExtent;
+		if (!_finite(cb.center.pt[axis]) || !_finite(cb.length[axis]) || cb.length[axis] <= 0.0)
+			return 0;
 	}
 
 	return 1;

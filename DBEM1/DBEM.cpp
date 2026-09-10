@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <float.h>
+#include <stdexcept>
 #include "DBEM.h"
 #include <direct.h>
 #include "dsquareelement.h"
@@ -908,12 +909,11 @@ int main()
 	//for (i = 0; i < 3; i++) {
 	//	fscanf_s(input, "%ld", &m_z[i]);
 	//}
-	// 获取单元平均尺寸
-	double AveEleSize = GetEleSize(m_PointList, m_ElePID, PointNum, EleNum);
+	// 获取所有单元四条角点边中的最短边长。
+	double minEdgeSize = GetEleSize(m_PointList, m_ElePID, PointNum, EleNum);
 	double c1 = sqrt((2.0 - 2.0 * v) / (1.0 - 2.0 * v) * G / Rou);
-	dt = Beta * AveEleSize / c1;//0.078125000000000*2;// Beta * AveEleSize / c1;//调整一步大小*****
-	//dt = Beta * AveEleSize / c1;
-	double tempbeta = c1 * dt / AveEleSize;
+	dt = Beta * minEdgeSize / c1;
+	double tempbeta = c1 * dt / minEdgeSize;
 	printf("\nBeta change to %lf\n\n", tempbeta);
 	//printf("请检查beta是否合适(Y,N)？\n");
 	//scanf_s(" %c", &YN, 1);
@@ -931,8 +931,8 @@ int main()
 	//	return -1;
 	//}
 
-	printf("Element Size: %lf\n\n", AveEleSize);
-	fprintf_s(logfile, "Element Size: %lf\n\n", AveEleSize);
+	printf("Minimum Element Edge Size: %lf\n\n", minEdgeSize);
+	fprintf_s(logfile, "Minimum Element Edge Size: %lf\n\n", minEdgeSize);
 	printf("dt: %2.15lf\n\n", dt);
 	fprintf_s(logfile, "dt: %2.15lf\n\n", dt);
 	FILE* dtpf;
@@ -2382,17 +2382,37 @@ int GetInfoFromPoint_SingleColumn(Point* m_NodeList, BoundaryValue* bd, long Nod
 
 double GetEleSize(Point* m_PointList, long** m_ElePID, long PointNum, long EleNum)
 {
-	long i;
-	double avesize = 0.0;
+	if (!m_PointList || !m_ElePID || PointNum <= 0 || EleNum <= 0)
+		throw std::runtime_error("GetEleSize: invalid mesh.");
 
-	for (i = 0; i < EleNum; ++i)
+	double minEdgeSquared = DBL_MAX;
+	for (long i = 0; i < EleNum; ++i)
 	{
-		avesize += Dist(m_PointList[m_ElePID[i][0]], m_PointList[m_ElePID[i][1]]);
+		if (!m_ElePID[i])
+			throw std::runtime_error("GetEleSize: missing element connectivity.");
+
+		// 前四个节点为沿单元边界顺序排列的角点。
+		for (int j = 0; j < 4; ++j)
+		{
+			const long a = m_ElePID[i][j];
+			const long b = m_ElePID[i][(j + 1) % 4];
+			if (a < 0 || a >= PointNum || b < 0 || b >= PointNum)
+				throw std::runtime_error("GetEleSize: invalid node index.");
+
+			double edgeSquared = 0.0;
+			for (int k = 0; k < DIMENSION; ++k)
+			{
+				const double delta = m_PointList[a].pt[k] - m_PointList[b].pt[k];
+				edgeSquared += delta * delta;
+			}
+			if (!_finite(edgeSquared) || edgeSquared <= 0.0)
+				throw std::runtime_error("GetEleSize: non-finite or degenerate edge.");
+			if (edgeSquared < minEdgeSquared)
+				minEdgeSquared = edgeSquared;
+		}
 	}
-
-	avesize /= EleNum;
-
-	return avesize;
+	// 比较平方长度，最终只开方一次。
+	return sqrt(minEdgeSquared);
 }
 
 double GetRadiusDispFromSphere(double rou, double a, double v, double t, double c1)

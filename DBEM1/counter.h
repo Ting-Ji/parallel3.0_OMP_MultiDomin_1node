@@ -1,6 +1,6 @@
 ﻿#ifndef _COUNTER_
 #define _COUNTER_
-#include <sys/timeb.h>
+#include <chrono>
 #include <sys/types.h>
 //-----------------------------------------------------------------------
 class Counter
@@ -24,12 +24,12 @@ public:
 	static double FMMTime;
 	static double DirectTime;
 
-	timeb BeginTime;
-	timeb EndTime;
+	std::chrono::steady_clock::time_point BeginTime;
+	std::chrono::steady_clock::time_point EndTime;
 	Counter() { ; }
-	void StartCount() { ftime(&BeginTime); }
-	void EndCount() { ftime(&EndTime); }
-	double TimeDiff() { return (0.001*(EndTime.millitm - BeginTime.millitm) + EndTime.time - BeginTime.time); }
+	void StartCount() { BeginTime = std::chrono::steady_clock::now(); }
+	void EndCount() { EndTime = std::chrono::steady_clock::now(); }
+	double TimeDiff() { return std::chrono::duration<double>(EndTime - BeginTime).count(); }
 	static void PrintInfo();
 };
 //-----------------------------------------------------------------------

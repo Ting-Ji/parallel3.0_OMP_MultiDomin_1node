@@ -1786,15 +1786,7 @@ int DynaGMRESSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, long
 
 
 
-	string Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	const char* OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:%lf\n", m_Counter.TimeDiff());
-	fclose(pf);
+	DBEMWriteTiming("legacy.solver_interval", m_Counter.TimeDiff());
 
 
 	return 1;
@@ -1981,15 +1973,7 @@ int DynaGMRESSolverNew(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, l
 
 
 
-	string Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	const char* OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:%lf\n", m_Counter.TimeDiff());
-	fclose(pf);
+	DBEMWriteTiming("legacy.solver_interval", m_Counter.TimeDiff());
 
 
 	return 1;
@@ -2179,15 +2163,7 @@ int DynaGMRESSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, long
 
 
 
-	string Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	const char* OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:%lf\n", m_Counter.TimeDiff());
-	fclose(pf);
+	DBEMWriteTiming("legacy.solver_interval", m_Counter.TimeDiff());
 
 
 	return 1;
@@ -2385,17 +2361,8 @@ int DynaGMRESSolverNew(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, l
 
 
 
-	string Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	const char* OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:\n");
-	fprintf(pf, "װʱ:%lf\n", DifTime1);
-	fprintf(pf, "ʱ:%lf\n", m_Counter.TimeDiff());
-	fclose(pf);
+	DBEMWriteTiming("legacy.assembly", DifTime1);
+	DBEMWriteTiming("legacy.solver_interval", m_Counter.TimeDiff());
 
 	//FILE* SparseM;
 	//double nnum = 9 * NodeNum * NodeNum;
@@ -2659,17 +2626,8 @@ int DynaGMRESSolverNewCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum
 
 
 
-	Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:\n");
-	fprintf(pf, "װʱ:%lf\n", DifTime1);
-	fprintf(pf, "ʱ:%lf\n", m_Counter.TimeDiff());
-	fclose(pf);
+	DBEMWriteTiming("legacy.assembly", DifTime1);
+	DBEMWriteTiming("legacy.solver_interval", m_Counter.TimeDiff());
 
 
 
@@ -3219,17 +3177,8 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 
 
 
-	Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:\n");
-	fprintf(pf, "װʱ:%lf\n", DifTime1);
-	fprintf(pf, "ʱ:%lf\n", m_Counter.TimeDiff());
-	fclose(pf);
+	DBEMWriteTiming("legacy.assembly", DifTime1);
+	DBEMWriteTiming("legacy.solver_interval", m_Counter.TimeDiff());
 
 
 
@@ -4056,18 +4005,9 @@ GMRES_CCSR_SOLVE_READY:
 
 
 
-	Temp = "GMRESTime.txt";
-	Path = TempPath + Temp;
-	OutPath = Path.c_str();
-
-	FILE* pf;
-
-	fopen_s(&pf, OutPath, "w");
-	fprintf(pf, "ʱ:\n");
-	fprintf(pf, "װʱ:%lf\n", DifTime1);
-	fprintf(pf, "ʱ:%lf\n", T_Solution.TimeDiff());
-	fprintf(pf, "GMRES:%lf\n", GMRESTime);
-	fclose(pf);
+	DBEMWriteTiming("legacy.assembly", DifTime1);
+	DBEMWriteTiming("legacy.solution", T_Solution.TimeDiff());
+	DBEMWriteTiming("legacy.gmres", GMRESTime);
 
 
 

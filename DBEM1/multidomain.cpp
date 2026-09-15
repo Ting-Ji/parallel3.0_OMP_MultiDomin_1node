@@ -36,8 +36,6 @@ static long g_validationGlobalUnknownBlocks = 0;
 static long g_validationMTS0Blocks = 0;
 static double g_validationAvgMTSBlocks = 0.0;
 static double g_validationAvgMGSBlocks = 0.0;
-static double g_validationMatrixAssemblyTime = 0.0;
-static double g_validationGMRESTime = 0.0;
 static int g_validationDomainCount = 0;
 static int g_validationMatrixStructureValid = 0;
 static long g_validationMatrixZeroRows = 0;
@@ -417,8 +415,6 @@ void WriteMultiDomainValidationMetrics(FILE* fp)
 	fprintf(fp, "MultiDomainMTS0NonZeroBlocks=%ld\n", g_validationMTS0Blocks);
 	fprintf(fp, "MultiDomainMTSAverageBlocks=%lf\n", g_validationAvgMTSBlocks);
 	fprintf(fp, "MultiDomainMGSAverageBlocks=%lf\n", g_validationAvgMGSBlocks);
-	fprintf(fp, "MultiDomainMatrixAssemblyTime=%lf\n", g_validationMatrixAssemblyTime);
-	fprintf(fp, "MultiDomainGMRESTime=%lf\n", g_validationGMRESTime);
 	fprintf(fp, "MultiDomainMatrixStructureValid=%d\n", g_validationMatrixStructureValid);
 	fprintf(fp, "MultiDomainMatrixZeroRows=%ld\n", g_validationMatrixZeroRows);
 	fprintf(fp, "MultiDomainMatrixZeroCols=%ld\n", g_validationMatrixZeroCols);
@@ -1187,6 +1183,7 @@ void MultiDomainCCSRBuilder::MergeFrom(const MultiDomainCCSRBuilder& other)
 {
 	if (other.m_blockRows != m_blockRows || other.m_blockCols != m_blockCols)
 		return;
+	const double matrixStart = DBEMWallTime();
 	for (std::map<std::pair<long, long>, std::array<double, 9> >::const_iterator it = other.m_blocks.begin();
 		it != other.m_blocks.end();
 		++it)
@@ -1197,11 +1194,15 @@ void MultiDomainCCSRBuilder::MergeFrom(const MultiDomainCCSRBuilder& other)
 			if (IsNearZeroArrayBlock9(target))
 				m_blocks.erase(it->first);
 		}
+	const double rhsStart = DBEMWallTime();
 	for (long row = 0; row < m_blockRows; ++row)
 	{
 		for (int c = 0; c < 3; ++c)
 			m_rhs[(size_t)row][(size_t)c] += other.m_rhs[(size_t)row][(size_t)c];
 	}
+	const double mergeEnd = DBEMWallTime();
+	DBEMWriteTiming("multidomain.assembly.merge.matrix", rhsStart - matrixStart);
+	DBEMWriteTiming("multidomain.assembly.merge.rhs", mergeEnd - rhsStart);
 }
 
 long MultiDomainCCSRBuilder::NonZeroBlocks() const
@@ -2642,7 +2643,6 @@ static int AssembleMultiDomainStep0DomainPthread(DSquareElement* elements,
 		return 1;
 
 	long localThreadCount = EffectiveMultiDomainThreadCount(domain, requestedThreads);
-	clock_t domainClock = clock();
 
 	if (localThreadCount <= 1)
 	{
@@ -2752,7 +2752,6 @@ static int AssembleMultiDomainHistoryDomainPthread(DSquareElement* elements,
 		return 1;
 
 	long localThreadCount = EffectiveMultiDomainThreadCount(domain, requestedThreads);
-	clock_t domainClock = clock();
 
 	if (localThreadCount <= 1)
 	{
@@ -4231,8 +4230,6 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	g_validationMTS0Blocks = 0;
 	g_validationAvgMTSBlocks = 0.0;
 	g_validationAvgMGSBlocks = 0.0;
-	g_validationMatrixAssemblyTime = 0.0;
-	g_validationGMRESTime = 0.0;
 	g_validationDomainCount = model.DomainCount();
 	g_validationMatrixStructureValid = 0;
 	g_validationMatrixZeroRows = 0;
@@ -4297,7 +4294,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 
 	MultiDomainCCSRBuilder unknownBuilder(dofMap.equationBlockCount, dofMap.unknownBlockCount);
 	MultiDomainCCSRBuilder knownBuilder(dofMap.equationBlockCount, dofMap.knownBlockCount);
-	clock_t matrixClock = clock();
+	double matrixClock = DBEMWallTime();
 	if (!AssembleMultiDomainStep0Pthread(elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder, thread_num))
 		return -1;
 
@@ -4314,6 +4311,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		return -1;
 	}
 
+	DBEMWriteTiming("multidomain.assembly.step0", DBEMWallTime() - matrixClock, 0);
 	CCSRMat* MTS = new CCSRMat[MaxN + 1];
 	SymCCSRMat* MGS = new SymCCSRMat[MaxN + 1];
 	CCSRMat* MGSFull = new CCSRMat[MaxN + 1];
@@ -4325,6 +4323,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	long totalHistoryGBlocks = 0;
 	for (long step = 1; step <= MaxN; ++step)
 	{
+		const double historyClock = DBEMWallTime();
 		MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount);
 		MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount);
 		if (!AssembleMultiDomainHistoryStepPthread(elements, model, dofMap, step, mtsBuilder, mgsBuilder, thread_num))
@@ -4344,19 +4343,23 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 			printf("MultiDomain MGS[%ld] has non-symmetric 3x3 blocks; using full CCSR representation for this step.\n", step);
 			mgsBuilder.Build(MGSFull[step]);
 		}
+		DBEMWriteTiming("multidomain.assembly.history", DBEMWallTime() - historyClock, step);
 		totalHistoryTBlocks += mtsBuilder.NonZeroBlocks();
 		totalHistoryGBlocks += mgsBuilder.NonZeroBlocks();
 		printf("MultiDomain history step %ld: MTS blocks=%ld MGS blocks=%ld\n",
 			step, mtsBuilder.NonZeroBlocks(), mgsBuilder.NonZeroBlocks());
 	}
-	double matrixAssemblyTime = (double)(clock() - matrixClock) / (double)CLOCKS_PER_SEC;
+	double matrixAssemblyTime = DBEMWallTime() - matrixClock;
 
+	DBEMWriteTiming("multidomain.assembly.total", matrixAssemblyTime);
+	double preClock = DBEMWallTime();
 	PreConditioner pre;
 	int preOk = 0;
 	if (model.DomainCount() == 1)
 		preOk = GMRESPreConditioner(elements, pre, model.nodeCount, maxleafpointnum, A);
 	else
 		preOk = BuildMappedLeafPreConditioner(elements, pre, model.nodeCount, maxleafpointnum, A, dofMap);
+	DBEMWriteTiming("multidomain.preconditioner", DBEMWallTime() - preClock);
 	if (!preOk)
 	{
 		delete[] MTS;
@@ -4368,6 +4371,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	if (model.DomainCount() == 1)
 		PrintPreconditionerSelfCheck(A, pre);
 
+	const double stateClock = DBEMWallTime();
 	std::vector<MultiDomainState> states((size_t)NStep + 1);
 	for (long step = 0; step <= NStep; ++step)
 		InitializeMultiDomainState(states[(size_t)step], dofMap);
@@ -4387,6 +4391,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	Wvector convU(3 * dofMap.historyUBlockCount, 0);
 	Wvector convT(3 * dofMap.historyTBlockCount, 0);
 
+	DBEMWriteTiming("multidomain.state_init", DBEMWallTime() - stateClock);
 	double gmresTime = 0.0;
 	long totalIter0 = 0;
 	long totalIter1 = 0;
@@ -4395,6 +4400,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 
 	for (long step = 1; step <= NStep; ++step)
 	{
+		const double rhsClock = DBEMWallTime();
 		printf("MultiDomain GMRES Solver: Step %ld.\n", step);
 		BuildKnownInputVectorFromBoundary(dofMap, model, elements, bd[step], states[(size_t)step].globalKnown);
 		SparseMul(KnownM, states[(size_t)step].globalKnown, rhs);
@@ -4426,9 +4432,13 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		x = 0.0;
 		int flag = 1;
 		int iter[2] = { 0, 0 };
-		clock_t gmresClock = clock();
+		DBEMWriteTiming("multidomain.rhs", DBEMWallTime() - rhsClock, step);
+		double gmresClock = DBEMWallTime();
 		gmres(elements, A, rhs, pre, iterations, error, 1, x0, x, flag, iter);
-		gmresTime += (double)(clock() - gmresClock) / (double)CLOCKS_PER_SEC;
+		const double solveSeconds = DBEMWallTime() - gmresClock;
+		gmresTime += solveSeconds;
+		DBEMWriteTiming("multidomain.gmres", solveSeconds, step);
+		const double updateClock = DBEMWallTime();
 		PrintLinearResidualSummary("GMRES candidate", step, A, rhs, x, error);
 		totalIter0 += iter[0];
 		totalIter1 += iter[1];
@@ -4438,7 +4448,10 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		WriteRhsBreakdownCsv("multidomain", step, elements, model.elementCount,
 			diagKnown, diagHistoryG, diagHistoryT, rhs, x, A);
 		if (flag != 0)
+		{
+			DBEMWriteTiming("multidomain.state_update_diagnostics", DBEMWallTime() - updateClock, step);
 			break;
+		}
 
 		states[(size_t)step].globalUnknown = x;
 		ScatterUnknownToBoundary(dofMap, model, elements, x, bd[step]);
@@ -4446,6 +4459,7 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		BuildPhysicalStateFromBoundary(dofMap, model, elements, bd[step], states[(size_t)step]);
 		WriteInterfaceTransferAuditCsv(model, elements, bd[step], step);
 		PrintInterfaceError(dofMap, model, elements, bd[step], step);
+		DBEMWriteTiming("multidomain.state_update_diagnostics", DBEMWallTime() - updateClock, step);
 	}
 
 	double avgMTSBlocks = MaxN > 0 ? (double)totalHistoryTBlocks / (double)MaxN : 0.0;
@@ -4470,8 +4484,6 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	g_validationMTS0Blocks = A.NonZeroBlocks();
 	g_validationAvgMTSBlocks = avgMTSBlocks;
 	g_validationAvgMGSBlocks = avgMGSBlocks;
-	g_validationMatrixAssemblyTime = matrixAssemblyTime;
-	g_validationGMRESTime = gmresTime;
 	g_validationDomainCount = model.DomainCount();
 
 	delete[] MTS;

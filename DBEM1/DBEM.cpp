@@ -549,8 +549,6 @@ static void WriteValidationOutputs(DSquareElement* elements,
 			overallMaxU = maxU;
 		if (maxT > overallMaxT)
 			overallMaxT = maxT;
-		fprintf(metrics, "InterfaceStep[%ld].MaxAbsU=%.17g\n", step, maxU);
-		fprintf(metrics, "InterfaceStep[%ld].MaxAbsTBalance=%.17g\n", step, maxT);
 	}
 	fprintf(metrics, "InterfaceOverallMaxAbsU=%.17g\n", overallMaxU);
 	fprintf(metrics, "InterfaceOverallMaxAbsTBalance=%.17g\n", overallMaxT);
@@ -627,13 +625,13 @@ int main()
 	Path = TempPath + Temp;
 	const char* OutPath = Path.c_str();
 	//——————————————————————————
-	clock_t starttime, endtime, temptime;
+	double starttime, endtime, temptime;
 	//--------------参数卡片----------------
 
 	fopen_s(&logfile, OutPath, "w");
 	printf_s("读入参数卡片 BEM_DATACARD.DAT...\n\n");
 	FILE* input;
-	starttime = clock();
+	starttime = DBEMWallTime();
 
 	fopen_s(&input, "BEM_DATACARD.DAT", "r");
 	fscanf_s(input, "%s", temptitlename, 49);
@@ -1058,12 +1056,6 @@ int main()
 		//fclose(sourcedata);
 		  
 
-		FILE* TIMEDATE;
-
-		Temp = "timedate.txt";
-		Path = TempPath + Temp;
-		OutPath = Path.c_str();
-		fopen_s(&TIMEDATE, OutPath, "w");
 		int flag_m = 0;
 
 		for (i = 0; i <= NStep; ++i)
@@ -1080,7 +1072,6 @@ int main()
 				bd[i].lu.b[j24 + 2] = tbd[2];
 			}
 		}
-		fclose(TIMEDATE);
 		fclose(input);
 	}
 
@@ -1167,9 +1158,9 @@ int main()
 	// 把不连续单元画出来
 //	Plot(m_NodeList,m_EleNID,"dis-element.dat",NodeNum,EleNum,2,amplitude);
 	
-	endtime = clock();
-	printf_s("读入文件用时 %ld\n", endtime - starttime);
-	fprintf_s(logfile, "读入文件用时 %ld\n", endtime - starttime);
+	endtime = DBEMWallTime();
+	printf_s("读入文件用时 %.6f s\n", endtime - starttime);
+	DBEMWriteTiming("run.input", endtime - starttime);
 	temptime = endtime;
 
 
@@ -1291,9 +1282,9 @@ int main()
 			printf("end ACA\n");
 		}
 
-		endtime = clock();	
-		printf_s("求解用时 %ld\n", endtime - temptime);
-		fprintf_s(logfile, "求解用时 %ld\n", endtime - temptime);
+		endtime = DBEMWallTime();	
+		printf_s("求解用时 %.6f s\n", endtime - temptime);
+		DBEMWriteTiming("run.solve", endtime - temptime);
 		temptime = endtime;
 
 		//tecplot
@@ -1308,9 +1299,9 @@ int main()
 		//GetInfoFromPoint_Uppersurface(m_NodeList, bd, m_EleNID, EleNum, eleflag, NStep);
 		//GetInfoFromPoint_SingleColumn(m_NodeList, bd, NodeNum, NStep, dt, dudt, C_1D, 4.0, m_EleNID);
 		
-		endtime = clock();
-		printf_s("后处理用时 %ld\n", endtime - temptime);
-		fprintf_s(logfile, "后处理用时 %ld\n", endtime - temptime);
+		endtime = DBEMWallTime();
+		printf_s("后处理用时 %.6f s\n", endtime - temptime);
+		DBEMWriteTiming("run.postprocess", endtime - temptime);
 		temptime = endtime;
 	}
 	else if (SD == 'S' || SD == 's')
@@ -1394,9 +1385,9 @@ int main()
 	delete m_NodeList;
 	m_NodeList = 0;
 	
-	endtime = clock();
-	printf_s("总用时 %ld\n", endtime - starttime);
-	fprintf_s(logfile, "求解用时 %ld\n", endtime - starttime);
+	endtime = DBEMWallTime();
+	printf_s("总用时 %.6f s\n", endtime - starttime);
+	DBEMWriteTiming("run.total", endtime - starttime);
 
 	FreeBatchBoundaryFiles(BatchBoundaryFiles, BatchBoundaryCaseCount);
 	fclose(logfile);

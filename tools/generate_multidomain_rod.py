@@ -629,29 +629,29 @@ def write_legacy_datacard(path: Path, case_name: str, cfg: Config) -> None:
 # Editable default parameters. Run this script to regenerate the current rod120 case.
 # ============================================================
 class Config:
-    domains: int = 100              # axial domain count
-    case: str = "100domain_2x2x200rod"           # case name
+    domains: int = 10              # axial domain count
+    case: str = "10domain_2x2x20rod_25"           # case name
     out_dir: str = "DBEM1/input"   # output directory
     card_out: str = ""             # datacard output path; empty = input/<case>.DATACARD
     write_single_domain_case: bool = False  # write a single-domain outer-surface case
     single_case_suffix: str = ""
     single_card_out: str = ""      # empty = input/<case>_single.DATACARD
 
-    length: float = 200           # rod length
+    length: float = 20           # rod length
     width: float = 2             # cross-section width
     height: float =2             # cross-section height
 
     # Mesh subdivisions per domain face.
-    nx: int = 4                    # x-axis subdivisions on side faces
-    ny: int = 4                   # y subdivisions
-    nz: int = 4                    # z subdivisions
+    nx: int = 25                    # x-axis subdivisions on side faces
+    ny: int = 25                   # y subdivisions
+    nz: int = 25                    # z subdivisions
 
-    nstep: int = 1500                # time steps
+    nstep: int = 1000                # time steps
     load_axis: str = "x"           # global load direction: "x", "y", "z"
     load_amplitude: float = 0.2   # right-end traction amplitude
     time_function: str = "constant"  # "constant", "ramp", "sine"
 
-    threads: int = 40
+    threads: int = 64
     flag_dyna: int = 2
     beta: float = 0.6
     gap: float = 0

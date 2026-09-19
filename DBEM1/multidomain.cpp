@@ -2,6 +2,7 @@
 #include "Gauss_solver.h"
 #include "pre_gmres.h"
 #include "output_path.h"
+#include "PthreadCCSR.h"
 
 #include <algorithm>
 #include <cctype>
@@ -624,34 +625,6 @@ void MultiDomainModel::PrintSummary(FILE* fp) const
 	fprintf(out, "MultiDomain enabled = %d\n", enabled ? 1 : 0);
 	fprintf(out, "DomainCount = %d\n", DomainCount());
 	fprintf(out, "InterfaceCount = %ld\n", (long)interfaces.size());
-	for (size_t i = 0; i < domains.size(); ++i)
-	{
-		const Domain& d = domains[i];
-		fprintf(out,
-			"Domain %d: eleBegin=%ld eleCount=%ld nodeBegin=%ld nodeCount=%ld boundaryNodes=%ld C1=%lf C2=%lf C1Dt=%lf C2Dt=%lf\n",
-			d.id,
-			d.eleBegin,
-			d.eleCount,
-			d.nodeBegin,
-			d.nodeCount,
-			(long)d.boundaryNodeIds.size(),
-			d.mat.C1,
-			d.mat.C2,
-			d.mat.C1Dt,
-			d.mat.C2Dt);
-	}
-	for (size_t i = 0; i < interfaces.size(); ++i)
-	{
-		const InterfacePair& itf = interfaces[i];
-		fprintf(out,
-			"Interface %ld: domainA=%d eleA=%ld domainB=%d eleB=%ld normalSign=%d\n",
-			(long)i,
-			itf.domainA,
-			itf.eleA,
-			itf.domainB,
-			itf.eleB,
-			itf.normalSign);
-	}
 }
 
 bool MultiDomainModel::Validate() const
@@ -3385,6 +3358,243 @@ static void BuildPhysicalStateFromBoundary(const GlobalDofMap& dofMap,
 		}
 	}
 }
+// History SpMV follows the single-domain pthread row partition and join scheme.
+template<class Matrix>
+struct MultiDomainHistorySpMVTask
+{
+    Matrix* matrix;
+    Wvector* input;
+    Wvector* output;
+    long start;
+    long end;
+};
+
+static void MultiplyHistoryRows(CCSRMat& M, Wvector& x, Wvector& b, long start, long end)
+{
+	long i;
+	int j;
+	int rownum;
+	int rowstart;
+	double btemp[3];
+	btemp[0] = btemp[1] = btemp[2] = 0;
+
+	for (i = start; i < end; ++i) {
+		b[i * 3 + 1] = 0.0;
+		b[i * 3 + 2] = 0.0;
+		b[i * 3 + 3] = 0.0;
+		rownum = M.row_ptr[i + 1] - M.row_ptr[i];
+		rowstart = M.row_ptr[i];
+		for (j = 0; j < rownum; ++j) {
+			btemp[0] = x[M.col_index[rowstart + j] * 3 + 1];
+			btemp[1] = x[M.col_index[rowstart + j] * 3 + 2];
+			btemp[2] = x[M.col_index[rowstart + j] * 3 + 3];
+			b[i * 3 + 1] += M.value[rowstart * 9 + j * 9] * btemp[0] + M.value[rowstart * 9 + j * 9 + 1] * btemp[1] + M.value[rowstart * 9 + j * 9 + 2] * btemp[2];
+			b[i * 3 + 2] += M.value[rowstart * 9 + j * 9 + 3] * btemp[0] + M.value[rowstart * 9 + j * 9 + 4] * btemp[1] + M.value[rowstart * 9 + j * 9 + 5] * btemp[2];
+			b[i * 3 + 3] += M.value[rowstart * 9 + j * 9 + 6] * btemp[0] + M.value[rowstart * 9 + j * 9 + 7] * btemp[1] + M.value[rowstart * 9 + j * 9 + 8] * btemp[2];
+		}
+	}
+
+}
+
+static void MultiplyHistoryRows(SymCCSRMat& M, Wvector& x, Wvector& b, long start, long end)
+{
+	long i;
+	int j;
+	int rownum;
+	int rowstart;
+	double btemp[3];
+	btemp[0] = btemp[1] = btemp[2] = 0;
+
+	for (i = start; i < end; ++i) {
+		b[i * 3 + 1] = 0.0;
+		b[i * 3 + 2] = 0.0;
+		b[i * 3 + 3] = 0.0;
+		rownum = M.row_ptr[i + 1] - M.row_ptr[i];
+		rowstart = M.row_ptr[i];
+		for (j = 0; j < rownum; ++j) {
+			btemp[0] = x[M.col_index[rowstart + j] * 3 + 1];
+			btemp[1] = x[M.col_index[rowstart + j] * 3 + 2];
+			btemp[2] = x[M.col_index[rowstart + j] * 3 + 3];
+			b[i * 3 + 1] += M.value[rowstart * 6 + j * 6] * btemp[0] + M.value[rowstart * 6 + j * 6 + 1] * btemp[1] + M.value[rowstart * 6 + j * 6 + 2] * btemp[2];
+			b[i * 3 + 2] += M.value[rowstart * 6 + j * 6 + 1] * btemp[0] + M.value[rowstart * 6 + j * 6 + 3] * btemp[1] + M.value[rowstart * 6 + j * 6 + 4] * btemp[2];
+			b[i * 3 + 3] += M.value[rowstart * 6 + j * 6 + 2] * btemp[0] + M.value[rowstart * 6 + j * 6 + 4] * btemp[1] + M.value[rowstart * 6 + j * 6 + 5] * btemp[2];
+		}
+	}
+
+}
+
+template<class Matrix>
+static void* RunMultiDomainHistorySpMV(void* arg)
+{
+    MultiDomainHistorySpMVTask<Matrix>& task =
+        *static_cast<MultiDomainHistorySpMVTask<Matrix>*>(arg);
+    MultiplyHistoryRows(*task.matrix, *task.input, *task.output, task.start, task.end);
+    return 0;
+}
+
+template<class Matrix>
+static void PrepareMultiDomainHistorySpMV(Matrix& matrix, Wvector& input, Wvector& output,
+    std::vector<MultiDomainHistorySpMVTask<Matrix> >& tasks)
+{
+    const long count = thread_num > 1 ? thread_num : 1;
+    std::vector<PthArg> ranges((size_t)count);
+    if (count == 1)
+    {
+        ranges[0].start = 0;
+        ranges[0].end = matrix.n;
+    }
+    else
+    {
+        std::vector<int> rowCount((size_t)matrix.n);
+        for (long row = 0; row < matrix.n; ++row)
+            rowCount[(size_t)row] = matrix.row_ptr[row + 1] - matrix.row_ptr[row];
+        PthDistr(rowCount.data(), ranges.data(), matrix.NonZeroBlocks(), matrix.n);
+    }
+    tasks.resize((size_t)count);
+    for (long i = 0; i < count; ++i)
+    {
+        tasks[(size_t)i].matrix = &matrix;
+        tasks[(size_t)i].input = &input;
+        tasks[(size_t)i].output = &output;
+        tasks[(size_t)i].start = ranges[(size_t)i].start;
+        tasks[(size_t)i].end = ranges[(size_t)i].end;
+    }
+}
+
+// One sleeping worker group serves all history products in this solve.
+class MultiDomainHistoryThreadPool
+{
+    struct Worker { MultiDomainHistoryThreadPool* pool; size_t index; };
+    pthread_mutex_t mutex;
+    pthread_cond_t workReady, allDone;
+    bool mutexReady, workReadyInitialized, allDoneInitialized, stopping;
+    size_t generation, completed;
+    void* tasks;
+    void (*execute)(void*, size_t);
+    std::vector<pthread_t> threads;
+    std::vector<Worker> workers;
+
+    MultiDomainHistoryThreadPool(const MultiDomainHistoryThreadPool&);
+    MultiDomainHistoryThreadPool& operator=(const MultiDomainHistoryThreadPool&);
+
+    static void* Work(void* arg)
+    {
+        Worker& worker = *static_cast<Worker*>(arg);
+        MultiDomainHistoryThreadPool& pool = *worker.pool;
+        size_t seen = 0;
+        pthread_mutex_lock(&pool.mutex);
+        for (;;)
+        {
+            while (!pool.stopping && seen == pool.generation)
+                pthread_cond_wait(&pool.workReady, &pool.mutex);
+            if (pool.stopping)
+                break;
+            seen = pool.generation;
+            void* currentTasks = pool.tasks;
+            void (*currentExecute)(void*, size_t) = pool.execute;
+            pthread_mutex_unlock(&pool.mutex);
+            currentExecute(currentTasks, worker.index);
+            pthread_mutex_lock(&pool.mutex);
+            if (++pool.completed == pool.threads.size())
+                pthread_cond_signal(&pool.allDone);
+        }
+        pthread_mutex_unlock(&pool.mutex);
+        return 0;
+    }
+
+    template<class Matrix>
+    static void Execute(void* data, size_t index)
+    {
+        std::vector<MultiDomainHistorySpMVTask<Matrix> >& current =
+            *static_cast<std::vector<MultiDomainHistorySpMVTask<Matrix> >*>(data);
+        RunMultiDomainHistorySpMV<Matrix>(&current[index]);
+    }
+
+public:
+    MultiDomainHistoryThreadPool()
+        : mutexReady(false), workReadyInitialized(false), allDoneInitialized(false),
+          stopping(false), generation(0), completed(0), tasks(NULL), execute(NULL) {}
+    ~MultiDomainHistoryThreadPool() { Close(); }
+
+    void Initialize(long count)
+    {
+        if (count <= 1)
+            return;
+        int errorCode = pthread_mutex_init(&mutex, NULL);
+        if (!errorCode)
+        {
+            mutexReady = true;
+            errorCode = pthread_cond_init(&workReady, NULL);
+        }
+        if (!errorCode)
+        {
+            workReadyInitialized = true;
+            errorCode = pthread_cond_init(&allDone, NULL);
+        }
+        if (!errorCode)
+        {
+            allDoneInitialized = true;
+            workers.resize((size_t)count);
+            threads.reserve((size_t)count);
+            for (size_t i = 0; i < workers.size(); ++i)
+            {
+                workers[i].pool = this;
+                workers[i].index = i;
+                pthread_t thread;
+                errorCode = pthread_create(&thread, NULL, Work, &workers[i]);
+                if (errorCode)
+                    break;
+                threads.push_back(thread);
+            }
+        }
+        if (errorCode)
+        {
+            Close();
+            printf("MultiDomain history thread initialization failed (%d); using serial row tasks.\n", errorCode);
+        }
+    }
+
+    template<class Matrix>
+    void Multiply(std::vector<MultiDomainHistorySpMVTask<Matrix> >& current)
+    {
+        if (threads.empty())
+        {
+            for (size_t i = 0; i < current.size(); ++i)
+                RunMultiDomainHistorySpMV<Matrix>(&current[i]);
+            return;
+        }
+        pthread_mutex_lock(&mutex);
+        tasks = &current;
+        execute = Execute<Matrix>;
+        completed = 0;
+        ++generation;
+        pthread_cond_broadcast(&workReady);
+        while (completed != threads.size())
+            pthread_cond_wait(&allDone, &mutex);
+        tasks = NULL;
+        pthread_mutex_unlock(&mutex);
+    }
+
+    void Close()
+    {
+        if (!threads.empty())
+        {
+            pthread_mutex_lock(&mutex);
+            stopping = true;
+            pthread_cond_broadcast(&workReady);
+            pthread_mutex_unlock(&mutex);
+            for (size_t i = 0; i < threads.size(); ++i)
+                pthread_join(threads[i], NULL);
+            threads.clear();
+        }
+        if (allDoneInitialized) pthread_cond_destroy(&allDone);
+        if (workReadyInitialized) pthread_cond_destroy(&workReady);
+        if (mutexReady) pthread_mutex_destroy(&mutex);
+        allDoneInitialized = workReadyInitialized = mutexReady = false;
+        workers.clear();
+    }
+};
+
 static void BuildConvolutionVector(const std::vector<MultiDomainState>& states,
 	long step,
 	long convol,
@@ -4391,6 +4601,21 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	Wvector convU(3 * dofMap.historyUBlockCount, 0);
 	Wvector convT(3 * dofMap.historyTBlockCount, 0);
 
+	std::vector<std::vector<MultiDomainHistorySpMVTask<CCSRMat> > > historyTTasks((size_t)MaxN + 1);
+	std::vector<std::vector<MultiDomainHistorySpMVTask<SymCCSRMat> > > historyGTasks((size_t)MaxN + 1);
+	std::vector<std::vector<MultiDomainHistorySpMVTask<CCSRMat> > > historyGFullTasks((size_t)MaxN + 1);
+	for (long lag = 1; lag <= MaxN; ++lag)
+	{
+		PrepareMultiDomainHistorySpMV(MTS[lag], convU, temp, historyTTasks[(size_t)lag]);
+		if (MGSUseSym[lag])
+			PrepareMultiDomainHistorySpMV(MGS[lag], convT, temp, historyGTasks[(size_t)lag]);
+		else
+			PrepareMultiDomainHistorySpMV(MGSFull[lag], convT, temp, historyGFullTasks[(size_t)lag]);
+	}
+
+	MultiDomainHistoryThreadPool historyPool;
+	historyPool.Initialize(thread_num);
+
 	DBEMWriteTiming("multidomain.state_init", DBEMWallTime() - stateClock);
 	double gmresTime = 0.0;
 	long totalIter0 = 0;
@@ -4415,14 +4640,14 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 
 			BuildConvolutionVector(states, step, convol, 1, convT);
 			if (MGSUseSym[convol])
-				SparseMul(MGS[convol], convT, temp);
+				historyPool.Multiply(historyGTasks[(size_t)convol]);
 			else
-				SparseMul(MGSFull[convol], convT, temp);
+				historyPool.Multiply(historyGFullTasks[(size_t)convol]);
 			AddVectorInPlace(rhs, temp, 1.0);
 			AddVectorInPlace(diagHistoryG, temp, 1.0);
 
 			BuildConvolutionVector(states, step, convol, 0, convU);
-			SparseMul(MTS[convol], convU, temp);
+			historyPool.Multiply(historyTTasks[(size_t)convol]);
 			AddVectorInPlace(rhs, temp, -1.0);
 			AddVectorInPlace(diagHistoryT, temp, -1.0);
 		}
@@ -4461,6 +4686,8 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 		PrintInterfaceError(dofMap, model, elements, bd[step], step);
 		DBEMWriteTiming("multidomain.state_update_diagnostics", DBEMWallTime() - updateClock, step);
 	}
+
+	historyPool.Close();
 
 	double avgMTSBlocks = MaxN > 0 ? (double)totalHistoryTBlocks / (double)MaxN : 0.0;
 	double avgMGSBlocks = MaxN > 0 ? (double)totalHistoryGBlocks / (double)MaxN : 0.0;

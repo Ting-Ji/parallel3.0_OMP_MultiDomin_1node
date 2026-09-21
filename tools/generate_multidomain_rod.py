@@ -630,7 +630,7 @@ def write_legacy_datacard(path: Path, case_name: str, cfg: Config) -> None:
 # ============================================================
 class Config:
     domains: int = 10              # axial domain count
-    case: str = "10domain_2x2x20rod_25"           # case name
+    case: str = "10domain_2x2x20rod_64"           # case name
     out_dir: str = "DBEM1/input"   # output directory
     card_out: str = ""             # datacard output path; empty = input/<case>.DATACARD
     write_single_domain_case: bool = False  # write a single-domain outer-surface case
@@ -642,9 +642,9 @@ class Config:
     height: float =2             # cross-section height
 
     # Mesh subdivisions per domain face.
-    nx: int = 25                    # x-axis subdivisions on side faces
-    ny: int = 25                   # y subdivisions
-    nz: int = 25                    # z subdivisions
+    nx: int = 64                    # x-axis subdivisions on side faces
+    ny: int = 64                   # y subdivisions
+    nz: int = 64                    # z subdivisions
 
     nstep: int = 1000                # time steps
     load_axis: str = "x"           # global load direction: "x", "y", "z"
@@ -655,7 +655,7 @@ class Config:
     flag_dyna: int = 2
     beta: float = 0.6
     gap: float = 0
-    E: float = 200
+    E: float = 20000
     nu: float = 0.25
     rho: float = 8
     amplify: float = 1.0

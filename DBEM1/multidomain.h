@@ -148,9 +148,10 @@ private:
 
 class MultiDomainCCSRBuilder {
 public:
-	explicit MultiDomainCCSRBuilder(long blockRows = 0, long blockCols = 0);
+	// Matrix-only builders omit RHS storage until an RHS contribution is added.
+	explicit MultiDomainCCSRBuilder(long blockRows = 0, long blockCols = 0, bool allocateRhs = true);
 
-	void Reset(long blockRows, long blockCols);
+	void Reset(long blockRows, long blockCols, bool allocateRhs = true);
 	void AddBlock(long rowBlock, long colBlock, double sign, const double block9[9]);
 	void AddRhsBlock(long rowBlock, double sign, const double value3[3]);
 	void MergeFrom(const MultiDomainCCSRBuilder& other);

@@ -1097,22 +1097,22 @@ static int DiagnoseInterfaceDofInvariants(const GlobalDofMap& dofMap, const Mult
 }
 
 
-MultiDomainCCSRBuilder::MultiDomainCCSRBuilder(long blockRows, long blockCols)
+MultiDomainCCSRBuilder::MultiDomainCCSRBuilder(long blockRows, long blockCols, bool allocateRhs)
 	: m_blockRows(blockRows), m_blockCols(blockCols)
 {
-	m_rhs.resize((size_t)blockRows);
-	for (long i = 0; i < blockRows; ++i)
+	m_rhs.resize(allocateRhs ? (size_t)blockRows : 0);
+	for (size_t i = 0; i < m_rhs.size(); ++i)
 		m_rhs[(size_t)i].fill(0.0);
 }
 
-void MultiDomainCCSRBuilder::Reset(long blockRows, long blockCols)
+void MultiDomainCCSRBuilder::Reset(long blockRows, long blockCols, bool allocateRhs)
 {
 	m_blockRows = blockRows;
 	m_blockCols = blockCols;
 	m_blocks.clear();
 	m_rhs.clear();
-	m_rhs.resize((size_t)blockRows);
-	for (long i = 0; i < blockRows; ++i)
+	m_rhs.resize(allocateRhs ? (size_t)blockRows : 0);
+	for (size_t i = 0; i < m_rhs.size(); ++i)
 		m_rhs[(size_t)i].fill(0.0);
 }
 
@@ -1148,6 +1148,8 @@ void MultiDomainCCSRBuilder::AddRhsBlock(long rowBlock, double sign, const doubl
 		return;
 	if (!value3 || sign == 0.0 || IsZeroBlock3(value3))
 		return;
+	if (m_rhs.empty())
+		m_rhs.resize((size_t)m_blockRows, std::array<double, 3>{});
 	for (int i = 0; i < 3; ++i)
 		m_rhs[(size_t)rowBlock][(size_t)i] += sign * value3[i];
 }
@@ -1168,7 +1170,9 @@ void MultiDomainCCSRBuilder::MergeFrom(const MultiDomainCCSRBuilder& other)
 				m_blocks.erase(it->first);
 		}
 	const double rhsStart = DBEMWallTime();
-	for (long row = 0; row < m_blockRows; ++row)
+	if (!other.m_rhs.empty() && m_rhs.empty())
+		m_rhs.resize((size_t)m_blockRows, std::array<double, 3>{});
+	for (size_t row = 0; row < other.m_rhs.size(); ++row)
 	{
 		for (int c = 0; c < 3; ++c)
 			m_rhs[(size_t)row][(size_t)c] += other.m_rhs[(size_t)row][(size_t)c];
@@ -1276,7 +1280,7 @@ void MultiDomainCCSRBuilder::BuildRhs(Wvector& out) const
 {
 	out.initial(3 * m_blockRows);
 	out = 0.0;
-	for (long row = 0; row < m_blockRows; ++row)
+	for (long row = 0; row < (long)m_rhs.size(); ++row)
 	{
 		out[row * 3 + 1] = m_rhs[(size_t)row][0];
 		out[row * 3 + 2] = m_rhs[(size_t)row][1];
@@ -2359,8 +2363,8 @@ static int CompareOrFallbackHistory(DSquareElement* elements,
 {
 	if (!MultiDomainPthreadCheckEnabled())
 		return 1;
-	MultiDomainCCSRBuilder serialMts(dofMap.equationBlockCount, dofMap.historyUBlockCount);
-	MultiDomainCCSRBuilder serialMgs(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+	MultiDomainCCSRBuilder serialMts(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
+	MultiDomainCCSRBuilder serialMgs(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
 	if (!AssembleMultiDomainHistoryStep(elements, model, dofMap, step, serialMts, serialMgs))
 		return 0;
 	double mtsDiff = MaxDenseDifference(mtsBuilder, serialMts);
@@ -2498,8 +2502,8 @@ int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 	if (!elements || step <= 0 || !model.Validate() || !dofMap.Validate())
 		return 0;
 
-	mtsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount);
-	mgsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+	mtsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
+	mgsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
 
 	for (size_t d = 0; d < model.domains.size(); ++d)
 	{
@@ -2758,8 +2762,8 @@ static int AssembleMultiDomainHistoryDomainPthread(DSquareElement* elements,
 		long begin = 0;
 		long end = 0;
 		SetThreadSourceRange(sourceCount, t, localThreadCount, begin, end);
-		localMts[t].Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount);
-		localMgs[t].Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+		localMts[t].Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
+		localMgs[t].Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
 		args[t].elements = elements;
 		args[t].domain = &domain;
 		args[t].dofMap = &dofMap;
@@ -2865,8 +2869,8 @@ static int AssembleMultiDomainHistoryStepPthread(DSquareElement* elements,
 	if (requestedThreads <= 1 || MultiDomainPthreadAssemblyDisabled())
 		return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
 
-	mtsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount);
-	mgsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+	mtsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
+	mgsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
 	for (size_t d = 0; d < model.domains.size(); ++d)
 	{
 		const Domain& domain = model.domains[d];
@@ -3144,8 +3148,8 @@ int RunMultiDomainMatrixSelfCheck(DSquareElement* elements,
 	SparseMul(newKnown, xKnown, newY);
 	ok = CompareMatVecResult("MTS[0]", oldY, newY) && ok;
 
-	MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount);
-	MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+	MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
+	MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
 	if (!AssembleMultiDomainHistoryStep(elements, model, dofMap, 1, mtsBuilder, mgsBuilder))
 		return 0;
 	CCSRMat newMTS1;
@@ -4534,8 +4538,8 @@ int DynaGMRESSolverMultiDomainCCSR(DSquareElement* elements,
 	for (long step = 1; step <= MaxN; ++step)
 	{
 		const double historyClock = DBEMWallTime();
-		MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount);
-		MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount);
+		MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
+		MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
 		if (!AssembleMultiDomainHistoryStepPthread(elements, model, dofMap, step, mtsBuilder, mgsBuilder, thread_num))
 		{
 			delete[] MTS;

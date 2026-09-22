@@ -518,15 +518,17 @@ def run_case(
     spec: CaseSpec,
     timeout: int,
     tree_root_mode: Optional[str] = None,
+    require_validation: bool = True,
 ) -> RunResult:
     env = os.environ.copy()
-    env["DBEM_VALIDATION_OUTPUT"] = "1"
+    # Diagnostics are compiled into solver_policy.h, never enabled by the runner.
+    for name in ("DBEM_VALIDATION_OUTPUT", "DBEM_RHS_DIAGNOSTIC",
+                 "DBEM_MULTIDOMAIN_GMRES_PTHREAD_CHECK", "DBEM_PARALLEL_KNOWN_RHS_CHECK"):
+        env.pop(name, None)
     if spec.multi_domain and tree_root_mode:
         env["DBEM_MULTIDOMAIN_TREE_ROOT"] = tree_root_mode
     elif spec.multi_domain:
         env.pop("DBEM_MULTIDOMAIN_TREE_ROOT", None)
-    if spec.rhs_diagnostic:
-        env["DBEM_RHS_DIAGNOSTIC"] = "1"
     exe = case_dir / "DBEM1.exe"
     command = [str(exe)]
     if is_wsl():
@@ -544,6 +546,11 @@ def run_case(
     )
     log_text = completed.stdout + "\n--- STDERR ---\n" + completed.stderr
     (case_dir / "run.log").write_text(log_text, encoding="utf-8", errors="replace")
+    if require_validation and "DBEM policy:" in log_text:
+        if "validationOutput=1" not in log_text:
+            raise RuntimeError("Validation configuration mismatch: rebuild with DBEM_POLICY_VALIDATION_OUTPUT=1; see solver_policy.h")
+        if spec.rhs_diagnostic and "solveDiagnostics=1" not in log_text:
+            raise RuntimeError("Validation configuration mismatch: rebuild with DBEM_POLICY_SOLVE_DIAGNOSTICS=1")
     output_dir = case_output_dir(case_dir, spec)
     metrics_path = output_dir / "validation_metrics.txt"
     metrics = parse_metrics(metrics_path)

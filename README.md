@@ -289,7 +289,7 @@ S=\max\left(1,\max_k\Delta_k,\max_{i,k}|x_{i,k}|\right),\qquad
 
 除叶点数阈值外，递归有两项强制保护：节点内全部坐标跨度均低于数值分辨率时生成 `degenerateLeaf`；达到第 64 层时生成 `maxDepthLeaf`。这两类叶节点可以超过 `premaxleafpointnum`，但都会记录原因并输出计数，防止退化点集无限递归。
 
-树建成后、抽取局部矩阵前会自检根框、父子指针、半边长/四分之一中心偏移、点的唯一归属、叶点总数、普通叶点数上限及重编号排列。任何缺点、重复点、非法几何或错误父子关系都会终止构造。`DBEM_VALIDATION_OUTPUT=1` 时还会生成 `tree_leaf_map.csv`，记录每个点所属叶节点及该叶的中心、边长和层数；`validation_metrics.txt` 记录根框、长宽比、叶数、最大层数、退化叶、最大深度叶及后备分配等统计。
+树建成后、抽取局部矩阵前会自检根框、父子指针、半边长/四分之一中心偏移、点的唯一归属、叶点总数、普通叶点数上限及重编号排列。任何缺点、重复点、非法几何或错误父子关系都会终止构造。`DBEMPolicy::validationOutput=true` 的构建还会生成 `tree_leaf_map.csv`，记录每个点所属叶节点及该叶的中心、边长和层数；`validation_metrics.txt` 记录根框、长宽比、叶数、最大层数、退化叶、最大深度叶及后备分配等统计。
 
 运行时可用下列开关做严格对照：
 
@@ -660,25 +660,26 @@ git check-ignore -v tools/generate_cube_spherical_inclusions.py
 
 ## 7. 并行实现
 
-当前并行粒度包括：
+- OpenMP 并行初始化几何和物理节点。
+- 多域 Step0 使用一组固定 pthread worker，逐域提交源行区间并等待完成；同一 worker 完成所负责行的外边界和接口贡献，域间暂保留屏障。
+- Step0 通过显式 `effectiveBCID` 选择核，不再临时修改共享单元的 BCID；固定 worker ID 独占积分槽和 builder，批次成功后按固定顺序合并。
+- 每个任务使用源域线程局部材料上下文；接口信息共享第 1 步只读缓存。
+- 历史矩阵仍按原逐域方式组装，历史卷积保持已有线程池。本步未实施跨域统一调度或 GPU。
 
-- 使用 OpenMP 并行初始化单元几何和单元中心物理点；
-- 多域当前项和历史项按子域遍历，并把源单元区间分配给 pthread worker；
-- 每个 worker 使用独立 `MultiDomainCCSRBuilder`，不共享写同一个稀疏容器；
-- 线程结束后按固定 worker 顺序合并子块，重复位置统一累加；
-- 每次积分通过 `ScopedDynaMat` 设置当前线程的源域材料，作用域退出后恢复原材料指针。
+新 Step0 并行路径只接收动力学有限单元，静力或无限单元分支在启动 worker 前拒绝；旧积分 API 的串行分支保留。线程安全尚未扩展到这些旧分支。
 
-这不是“全流程并行”：全局自由度构建、部分界面当前项处理、预条件器构造、GMRES 主迭代和部分后处理仍主要为串行或沿用旧实现。
+第 2 步简化验证：`python DBEM1\tests\run_step2_step0_tests.py`。使用同一两域、5 步算例对比 1/4 线程和诊断构建，并检查线程池复用、显式 BCID、失败路径及状态文件。结果位于 `validation_runs/step2_step0/summary.json`。
 
 多域装配相关环境变量如下：
 
 | 环境变量 | 默认值 | 作用 |
 | --- | --- | --- |
 | `DBEM_MULTIDOMAIN_GMRES_PTHREAD` | 开启 | 设为 `0/false/off/no` 时强制使用串行装配 |
-| `DBEM_MULTIDOMAIN_GMRES_PTHREAD_CHECK` | 关闭 | 设为真时同时计算串行结果并比较；超出混合容差会采用串行结果 |
 | `DBEM_MULTIDOMAIN_TREE_ROOT` | `cuboid` | 多域叶块预处理器树根；可设为 `cube` 做旧立方体行为对照，其他值直接报错 |
 
-pthread 创建或连接失败时，装配函数会回退到串行实现。并行检查主要验证装配等价性，不等价于最终物理解的完整正确性证明。
+默认禁止并行失败后自动转串行，也禁止串并行比较失败后自动替换矩阵。仅在编译时显式开启相应策略后允许恢复；非有限值、非法结构和行归属冲突始终停止。线程连接或同步失败导致无法确认 worker 生命周期时，报告原因并终止进程，不释放可能仍在使用的工作区。主动指定单线程或串行装配不属于失败回退。
+
+历史矩阵按 3×3 块是否对称选择六分量压缩或九分量完整 CCSR。非对称块的完整存储属于正确性要求，始终保留并报告，不受回退开关控制。并行检查主要验证装配等价性，不等价于最终物理解的完整正确性证明。
 
 ## 8. 输出与诊断
 
@@ -701,13 +702,23 @@ DBEM1/output/<caseName>_<NStep>/
 
 少量旧路径仍通过主程序早期构造的父目录 `output/` 写入，例如部分 `log.txt`、`dt.txt` 和历史性能文件；分析结果时应优先使用算例目录中的结构化验证文件，并留意旧输出位置。
 
-诊断开关如下：
+`validation_state.csv` 作为必需的计算状态输出，正常求解完成后始终生成，不受诊断开关控制。列名、精度、单位及 0...NStep 范围保持不变。开始本算例求解前清除旧同名文件及临时文件；完整写入临时文件并成功关闭后才发布正式文件。清理或写入失败明确报错，求解失败不发布新状态文件。
 
-| 环境变量 | 默认值 | 作用 |
+诊断和回退统一由 `DBEM1/solver_policy.h` 内置配置控制，修改后需重新编译。默认均关闭：
+
+| 内置配置 | 默认值 | 作用 |
 | --- | --- | --- |
-| `DBEM_VALIDATION_OUTPUT` | 开启 | 设为 `0/false/off/no` 可关闭结构化验证输出 |
-| `DBEM_RHS_DIAGNOSTIC` | 关闭 | 设为 `1/true` 启用或保留详细 RHS/残差诊断 |
-| `DBEM_PARALLEL_KNOWN_RHS_CHECK` | 关闭 | 用于旧单域 GMRES 已知 RHS 并行路径的一致性检查 |
+| `validationOutput` | 关闭 | 指标、接口和树叶映射等可选验证输出；不控制状态 CSV |
+| `assemblyCrossCheck` | 关闭 | 串并行重复组装比较、单域新旧矩阵和已知 RHS 检查 |
+| `solveDiagnostics` | 关闭 | RHS 分解、额外真实残差、预条件器自检及相关 CSV |
+| `allowSerialFallback` | 关闭 | 安全回收 worker 后，允许并行资源失败转串行 |
+| `allowReferenceReplacement` | 关闭 | 交叉检查失败时允许采用合法的串行参考矩阵 |
+
+`DBEM_VALIDATION_OUTPUT`、`DBEM_RHS_DIAGNOSTIC`、`DBEM_MULTIDOMAIN_GMRES_PTHREAD_CHECK` 和 `DBEM_PARALLEL_KNOWN_RHS_CHECK` 环境变量不再控制诊断；若设置，启动时会提示迁移。程序打印有效内置配置。正常 Tecplot 输出、计时和求解错误报告保留。关闭诊断也跳过专用向量分配、分项累加和额外矩阵乘法。
+
+验证脚本不能通过环境变量打开这些功能。隔离验证构建可设置 `DBEM_POLICY_VALIDATION_OUTPUT=1`、`DBEM_POLICY_ASSEMBLY_CHECK=1` 和 `DBEM_POLICY_SOLVE_DIAGNOSTICS=1` 编译宏；回退宏 `DBEM_POLICY_SERIAL_FALLBACK` 和 `DBEM_POLICY_REFERENCE_REPLACEMENT` 仍保持 0。脚本遇到缺少所需诊断的构建会报告配置不匹配。
+
+模型和自由度映射在初始化阶段验证；同一次求解的时滞装配复用已验证上下文，不再重复扫描。不在求解上下文中的独立装配调用仍进行入口验证。各时滞矩阵的块对称性取决于数值，仍逐时滞检查。
 
 矩阵求解前还会检查零块行、零块列、非有限块、对角块和可逆对角块；界面自由度映射会检查位移/面力共享关系和全局未知块一一对应关系。任何结构检查通过都只说明代数结构满足预期，不能替代解析解或收敛性验证。
 
@@ -724,6 +735,14 @@ DBEM1/output/<caseName>_<NStep>/
 本地图件位于 `DBEM1/output/plot/`，汇报源文件及 PDF 位于 `DBEM1/reports/completed_cases.tex`、`completed_cases.pdf`。不同图的尺寸、材料和时间步不一定相同，不作为纯域数收敛对照。100 域细长杆曾出现错误/偏移，尚不能以积分代码已修正为由宣称问题已解决；球形夹杂目前按输入生成能力记录。
 
 ### 9.1 多域回归测试
+
+第 0 步的简化回归只运行一个两域、5 步算例，以及少量线程失败、非有限块和非对称存储测试：
+
+```powershell
+python DBEM1\tests\run_step0_policy_tests.py
+```
+
+脚本在 `validation_runs/step0_policy/` 内构建默认、诊断及测试专用版本，不改正式参数卡。检查默认仅输出必需的状态 CSV、诊断版串并行差异为零、残差与接口约束通过，以及两种配置的 Tecplot 结果一致。可用 `--baseline <修改前算例输出目录>` 比较保存的修改前结果。以下较完整的历史验证入口需要使用启用了所需诊断的可执行文件；本次第 0 步不要求运行这些扩展算例。
 
 快速测试包含 1 域旧/新路径的短时间步对照和 2 域同材料测试：
 

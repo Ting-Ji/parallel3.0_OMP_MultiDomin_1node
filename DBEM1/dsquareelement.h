@@ -1011,10 +1011,12 @@ public:
 	
 	int ConvertUnknownCoef(); 
 	int ConvertUnknownCoef(long T_ID);
+	int ConvertUnknownCoef(long T_ID, int effectiveBCID);
 	int ConvertKnownCoef();
 	int ConvertUnknownCoef(int ID);
 	int ConvertKnownCoef(int ID);
 	int ConvertKnownCoef(long T_ID);
+	int ConvertKnownCoef(long T_ID, int effectiveBCID);
 	int ConvertUnknownCoefforInf();
 	int ConvertKnownCoefforInf();
 
@@ -1025,8 +1027,10 @@ public:
 		// 可根据距离判断调用PW还是常规积分，返回0, 1, 2
 	int RegularIntUnknownCoef(Point& source);
 	int RegularIntUnknownCoef(Point& source,long T_ID);
+	int RegularIntUnknownCoef(Point& source, long T_ID, int effectiveBCID);
 	int RegularIntKnownCoef(Point& source);
 	int RegularIntKnownCoef(Point& source, long T_ID);
+	int RegularIntKnownCoef(Point& source, long T_ID, int effectiveBCID);
 	int RegularIntUnknownCoef(Point& source,int ID);
 	int RegularIntKnownCoef(Point& source,int ID);
 	int RegularIntUnknownCoefforStatic(Point & source);
@@ -1036,10 +1040,12 @@ public:
 		// (已逐行检查) 奇异积分计算，包括坐标和已知未知量转换，U1ij(n=0)和T1ij(n=0)
 	int InElementIntUnknownCoef(int sourceID);
 	int InElementIntUnknownCoef(int sourceID,long T_ID);
+	int InElementIntUnknownCoef(int sourceID, long T_ID, int effectiveBCID);
 	int InElementIntKnownCoef(int sourceID);
 	int InElementIntUnknownCoef(int sourceID,int ID);
 	int InElementIntKnownCoef(int sourceID,int ID);	
 	int InElementIntKnownCoef(int sourceID, long T_ID);
+	int InElementIntKnownCoef(int sourceID, long T_ID, int effectiveBCID);
 
 };
 
@@ -1049,12 +1055,14 @@ public:
 int UnknownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID);
 int UnknownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID, long** InfElePID, long** ElePID);
 int UnknownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID, long** InfElePID, long** ElePID,long T_ID);
+int UnknownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID, long** InfElePID, long** ElePID,long T_ID, int effectiveBCID);
 int NodeUnknownSubMatrix(DSquareElement* m_elelist, long SourceNodeID, long FieldNodeID);
 
 // 获取已知量子矩阵，仅适用于DU1ij(n=0)和DT1ij(n=0)
 int knownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID);
 int knownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID, long** InfElePID, long** ElePID);
 int knownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID, long** InfElePID, long** ElePID, long T_ID);
+int knownSubMatrix(DSquareElement* m_elelist, long NodeID, long FieldEleID, long** InfElePID, long** ElePID, long T_ID, int effectiveBCID);
 int NodeknownSubMatrix(DSquareElement* m_elelist, long SourceNodeID, long FieldNodeID);
 
 //--------------------------------------------------------

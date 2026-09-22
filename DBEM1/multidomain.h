@@ -100,6 +100,24 @@ public:
 	bool Validate() const;
 };
 
+// Geometry-only snapshot. Rebuild after changing pairing, node IDs or local bases.
+// A solve shares this immutable cache across assembly and state updates.
+class MultiDomainInterfaceCache {
+public:
+	struct Entry {
+		int domainId = -1;
+		long interfaceId = -1;
+		bool referenceSide = true;
+		long node = -1, peerElement = -1, peerNode = -1;
+		long referenceElement = -1, referenceNode = -1;
+		std::array<double, 9> transform = {{1,0,0,0,1,0,0,0,1}};
+	};
+	MultiDomainInterfaceCache(const MultiDomainModel& model, const DSquareElement* elements);
+	const Entry& Get(long element) const;
+private:
+	std::vector<Entry> entries;
+};
+
 struct VariableRef {
 	long globalBlock;
 	double sign;
@@ -148,10 +166,13 @@ private:
 
 class MultiDomainCCSRBuilder {
 public:
+	enum StorageMode { GlobalMap, IndependentRows };
+	typedef std::map<long, std::array<double, 9> > BlockRow;
 	// Matrix-only builders omit RHS storage until an RHS contribution is added.
-	explicit MultiDomainCCSRBuilder(long blockRows = 0, long blockCols = 0, bool allocateRhs = true);
+	explicit MultiDomainCCSRBuilder(long blockRows = 0, long blockCols = 0, bool allocateRhs = true,
+		StorageMode storage = GlobalMap);
 
-	void Reset(long blockRows, long blockCols, bool allocateRhs = true);
+	void Reset(long blockRows, long blockCols, bool allocateRhs = true, StorageMode storage = GlobalMap);
 	void AddBlock(long rowBlock, long colBlock, double sign, const double block9[9]);
 	void AddRhsBlock(long rowBlock, double sign, const double value3[3]);
 	void MergeFrom(const MultiDomainCCSRBuilder& other);
@@ -162,10 +183,28 @@ public:
 	long NonZeroBlocks() const;
 	long BlockRows() const { return m_blockRows; }
 	long BlockCols() const { return m_blockCols; }
+	bool HasIndependentRows() const { return m_storage == IndependentRows; }
+	const BlockRow& Row(long row) const { return m_rows[(size_t)row]; }
+	void ClearRows(long begin, long end);
+	const std::array<double, 9>* FindBlock(long row, long col) const;
+	template<class Visitor> void ForEachBlock(Visitor visit) const
+	{
+		if (HasIndependentRows())
+		{
+			for (long row = 0; row < m_blockRows; ++row)
+				for (const auto& block : m_rows[(size_t)row])
+					visit(row, block.first, block.second);
+		}
+		else
+			for (const auto& block : m_blocks)
+				visit(block.first.first, block.first.second, block.second);
+	}
 
 private:
 	long m_blockRows;
 	long m_blockCols;
+	StorageMode m_storage;
+	std::vector<BlockRow> m_rows;
 	std::map<std::pair<long, long>, std::array<double, 9> > m_blocks;
 	std::vector<std::array<double, 3> > m_rhs;
 };

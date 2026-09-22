@@ -1,4 +1,6 @@
-﻿#include "stdio.h"
+﻿#include <cerrno>
+#include "solver_policy.h"
+#include "stdio.h"
 #include "DSquareElement.h"
 #include "Gauss_solver.h"
 #include "pre_gmres.h"
@@ -398,21 +400,7 @@ using namespace std;
 
 static int ValidationOutputEnabled()
 {
-	char* value = 0;
-	size_t valueSize = 0;
-	if (_dupenv_s(&value, &valueSize, "DBEM_VALIDATION_OUTPUT") != 0)
-		return 1;
-	if (!value)
-		return 1;
-	int enabled = !(strcmp(value, "0") == 0 ||
-		strcmp(value, "false") == 0 ||
-		strcmp(value, "FALSE") == 0 ||
-		strcmp(value, "off") == 0 ||
-		strcmp(value, "OFF") == 0 ||
-		strcmp(value, "no") == 0 ||
-		strcmp(value, "NO") == 0);
-	free(value);
-	return enabled;
+	return DBEMPolicy::validationOutput;
 }
 
 static void GetValidationElementCenter(Point* pointList, long** elePid, long ele, double center[3])
@@ -432,7 +420,21 @@ static void GetValidationElementCenter(Point* pointList, long** elePid, long ele
 	center[2] /= 8.0;
 }
 
-static void WriteValidationOutputs(DSquareElement* elements,
+// Invalidate only the current case's state output before solving. A failed
+// run cannot leave a previous successful state file looking like new output.
+static bool BeginStateOutput()
+{
+    for (const char* name : { "validation_state.csv", "validation_state.csv.tmp" }) {
+        const std::string path = DBEMOutputPath(name);
+        if (remove(path.c_str()) != 0 && errno != ENOENT) {
+            fprintf(stderr, "Cannot invalidate previous state file %s: errno=%d\n", path.c_str(), errno);
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool WriteValidationOutputs(DSquareElement* elements,
 	Point* pointList,
 	long** elePid,
 	int* bdid,
@@ -443,12 +445,14 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	int solver,
 	const MultiDomainModel& model)
 {
-	if (!ValidationOutputEnabled() || !elements || !pointList || !elePid || !bdValue)
-		return;
+	if (!elements || !pointList || !elePid || !bdValue) {
+        fprintf(stderr, "Cannot write state: invalid solved state\n"); return false;
+    }
 
 	FILE* state = 0;
 	std::string validationStatePath = DBEMOutputPath("validation_state.csv");
-	fopen_s(&state, validationStatePath.c_str(), "w");
+	const std::string temporaryPath = validationStatePath + ".tmp";
+    fopen_s(&state, temporaryPath.c_str(), "w");
 	if (state)
 	{
 		fprintf(state, "step,element,localNode,nodeId,domain,surfaceType,bcid,x,y,z,ux,uy,uz,tx,ty,tz\n");
@@ -483,12 +487,21 @@ static void WriteValidationOutputs(DSquareElement* elements,
 				}
 			}
 		}
-		fclose(state);
+        const bool writeFailed = ferror(state) != 0;
+        const int closeResult = fclose(state);
+        if (writeFailed || closeResult != 0 || rename(temporaryPath.c_str(), validationStatePath.c_str()) != 0) {
+            fprintf(stderr, "Cannot complete state file %s: errno=%d\n", validationStatePath.c_str(), errno);
+            remove(temporaryPath.c_str());
+            return false;
+        }
 	}
 	else
 	{
-		printf("Cannot open %s for writing.\n", validationStatePath.c_str());
+		fprintf(stderr, "Cannot open %s for writing.\n", temporaryPath.c_str());
+        return false;
 	}
+
+	if (!ValidationOutputEnabled()) return true;
 
 	FILE* metrics = 0;
 	std::string validationMetricsPath = DBEMOutputPath("validation_metrics.txt");
@@ -496,7 +509,7 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	if (!metrics)
 	{
 		printf("Cannot open %s for writing.\n", validationMetricsPath.c_str());
-		return;
+		return false;
 	}
 
 	fprintf(metrics, "ValidationOutput=1\n");
@@ -557,10 +570,12 @@ static void WriteValidationOutputs(DSquareElement* elements,
 	else
 		fprintf(metrics, "MultiDomainMetricsValid=0\n");
 	fclose(metrics);
+	return true;
 }
 //int DBEM_main() { return 0; };
 int main()
 {
+	DBEMPolicy::Print();
 	//--------------变量定义----------------
 	int m_flag = 0;
 	long PointNum;            // 几何节点数
@@ -648,6 +663,7 @@ int main()
 	fscanf_s(input, "%lf", &Beta);
 	fscanf_s(input, "%ld", &NStep);
 	DBEMInitializeOutputDirectory(temptitlename, NStep);
+	if (!BeginStateOutput()) return -1;
 	fscanf_s(input, "%lf", &gap);
 	fscanf_s(input, "%lf", &E);
 	fscanf_s(input, "%lf", &v);
@@ -1353,7 +1369,7 @@ int main()
 
 	}
 
-	WriteValidationOutputs(m_DSE, m_PointList, m_ElePID, bdid, bd, EleNum, NStep, dt, solvers, MultiDomain);
+	if (!WriteValidationOutputs(m_DSE, m_PointList, m_ElePID, bdid, bd, EleNum, NStep, dt, solvers, MultiDomain)) return -1;
 
 	//---------------释放分配空间---------------------
 

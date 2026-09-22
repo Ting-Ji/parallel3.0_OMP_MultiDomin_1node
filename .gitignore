@@ -53,3 +53,4 @@ DBEM1/__pycache__/
 DBEM1/1
 DBEM1/run_capture*.txt
 *.before_1node_plan
+/DBEM1/tests

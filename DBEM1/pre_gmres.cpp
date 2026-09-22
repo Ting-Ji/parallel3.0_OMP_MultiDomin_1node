@@ -1,4 +1,5 @@
-﻿#include "pre_gmres.h"
+﻿#include "solver_policy.h"
+#include "pre_gmres.h"
 #include "stdio.h"
 #include "math.h"
 #include "Counter.h"
@@ -28,13 +29,7 @@ static long GMRES_BATCH_THREAD_NUM = 0;
 static char GMRES_OUTPUT_SUBDIR[260] = "";
 static int RhsDiagnosticEnabled()
 {
-	char* value = 0;
-	size_t valueLen = 0;
-	_dupenv_s(&value, &valueLen, "DBEM_RHS_DIAGNOSTIC");
-	int enabled = value && (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0);
-	if (value)
-		free(value);
-	return enabled;
+	return DBEMPolicy::solveDiagnostics;
 }
 
 static FILE* OpenDiagnosticCsv(const char* path, const char* header)
@@ -55,17 +50,7 @@ static FILE* OpenDiagnosticCsv(const char* path, const char* header)
 
 static int ParallelKnownRhsSelfCheckEnabled()
 {
-	static int enabled = -1;
-	if (enabled >= 0)
-		return enabled;
-
-	char* value = 0;
-	size_t valueLen = 0;
-	_dupenv_s(&value, &valueLen, "DBEM_PARALLEL_KNOWN_RHS_CHECK");
-	enabled = value && (strcmp(value, "1") == 0 || strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0);
-	if (value)
-		free(value);
-	return enabled;
+	return DBEMPolicy::assemblyCrossCheck;
 }
 
 static int SparseMulKnownRhsRowsParallel(CCSRMat& M, Wvector& x, Wvector& b)
@@ -3216,9 +3201,9 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 	Wvector diagKnown;
 	Wvector diagHistoryG;
 	Wvector diagHistoryT;
-	diagKnown.initial(3 * NodeNum);
-	diagHistoryG.initial(3 * NodeNum);
-	diagHistoryT.initial(3 * NodeNum);
+	if (DBEMPolicy::solveDiagnostics) diagKnown.initial(3 * NodeNum);
+	if (DBEMPolicy::solveDiagnostics) diagHistoryG.initial(3 * NodeNum);
+	if (DBEMPolicy::solveDiagnostics) diagHistoryT.initial(3 * NodeNum);
 
 	//Bvector = new Wvector[thread_num];
 	//CBT = new Wvector[MaxN + 1];
@@ -3768,9 +3753,9 @@ GMRES_CCSR_SOLVE_READY:
 	// B = MG_1(0) * bd[1].luMG_1(0)ʵ֪bd[1].lu1ʱ̵֪
 	//mat_vec_product(MG[0], bd[1].lu, B);
 	SparseMulKnownRhsParallel(MTS[0], bd[1].lu, Bsum);
-	diagKnown = Bsum;
-	diagHistoryG = 0.0;
-	diagHistoryT = 0.0;
+	if (DBEMPolicy::solveDiagnostics) diagKnown = Bsum;
+	if (DBEMPolicy::solveDiagnostics) diagHistoryG = 0.0;
+	if (DBEMPolicy::solveDiagnostics) diagHistoryT = 0.0;
 
 
 	//for (i = 0; i < thread_num; i++) {
@@ -3837,9 +3822,9 @@ GMRES_CCSR_SOLVE_READY:
 		
 
 		SparseMulKnownRhsParallel(MTS[0], bd[StepNum].lu, Bsum);
-		diagKnown = Bsum;
-		diagHistoryG = 0.0;
-		diagHistoryT = 0.0;
+		if (DBEMPolicy::solveDiagnostics) diagKnown = Bsum;
+		if (DBEMPolicy::solveDiagnostics) diagHistoryG = 0.0;
+		if (DBEMPolicy::solveDiagnostics) diagHistoryT = 0.0;
 
 		//for (i = 0; i < thread_num; i++) {
 		//	pthread_create(&(threads[i]), NULL, PthSpMVKnown, &SpMVThreadG[0][i]);
@@ -3874,7 +3859,7 @@ GMRES_CCSR_SOLVE_READY:
 				}
 
 				Bsum += CB2;
-				diagHistoryG += CB2;
+				if (DBEMPolicy::solveDiagnostics) diagHistoryG += CB2;
 
 				// [T]
 				CB1 = 0.0;
@@ -3893,7 +3878,7 @@ GMRES_CCSR_SOLVE_READY:
 					pthread_join(threads[i], NULL);
 				}
 				Bsum -= CB2;
-				diagHistoryT -= CB2;
+				if (DBEMPolicy::solveDiagnostics) diagHistoryT -= CB2;
 			}
 		}
 

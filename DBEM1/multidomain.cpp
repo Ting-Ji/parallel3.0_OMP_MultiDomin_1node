@@ -2110,11 +2110,6 @@ static int AddKnownOrUnknownBlockCurrentMat(DSquareElement* elements,
 	return 1;
 }
 
-struct Step0Task {
-    int domainId;
-    long sourceBegin, sourceEnd;
-};
-
 struct Step0WorkerContext {
 	DSquareElement* elements;
 	const Domain* domain;
@@ -2164,7 +2159,7 @@ try
 	if (!arg || !arg->elements || !arg->domain || !arg->dofMap ||
 		!arg->unknownBuilder || !arg->knownBuilder)
 	{
-		arg->ok = 0;
+		arg->ok = -1;
 		return 0;
 	}
 
@@ -2221,6 +2216,11 @@ try
 	return 0;
 }
 
+catch (const std::bad_alloc&)
+{
+    static_cast<Step0WorkerContext*>(rawArg)->ok = 0;
+    return nullptr;
+}
 catch (const std::exception& error)
 {
     auto* arg = static_cast<Step0WorkerContext*>(rawArg);
@@ -2245,7 +2245,7 @@ static void* MultiDomainHistoryThreadMain(void* rawArg)
 	if (!arg || !arg->elements || !arg->domain || !arg->dofMap ||
 		!arg->mtsBuilder || !arg->mgsBuilder)
 	{
-		arg->ok = 0;
+		arg->ok = -1;
 		return 0;
 	}
 
@@ -2298,7 +2298,8 @@ static void* MultiDomainHistoryThreadMain(void* rawArg)
 			}
 		}
 	}
-	catch (const std::exception& error)
+	catch (const std::bad_alloc&) { arg->ok = 0; }
+    catch (const std::exception& error)
     {
         arg->ok = -1;
         fprintf(stderr, "MultiDomain history step=%ld domain=%d thread=%ld: %s\n",
@@ -2307,33 +2308,6 @@ static void* MultiDomainHistoryThreadMain(void* rawArg)
     catch (...) { arg->ok = -1; fprintf(stderr, "MultiDomain history worker exception\n"); }
 	return 0;
 }
-
-static long EffectiveMultiDomainThreadCount(const Domain& domain, long requestedThreads)
-{
-	long count = requestedThreads;
-	if (count <= 0)
-		count = thread_num;
-	if (count <= 0)
-		count = 1;
-	if (count > thread_num && thread_num > 0)
-		count = thread_num;
-	long sourceCount = (long)domain.elementIds.size();
-	if (sourceCount > 0 && count > sourceCount)
-		count = sourceCount;
-	if (count < 1)
-		count = 1;
-	return count;
-}
-
-static void SetThreadSourceRange(long sourceCount, long threadId, long threadCount, long& begin, long& end)
-{
-	long size = sourceCount / threadCount;
-	long rest = sourceCount % threadCount;
-	begin = threadId * size + (threadId < rest ? threadId : rest);
-	end = begin + size + (threadId < rest ? 1 : 0);
-}
-
-
 
 static double MaxDenseDifference(const MultiDomainCCSRBuilder& a, const MultiDomainCCSRBuilder& b)
 {
@@ -2644,7 +2618,7 @@ int AssembleMultiDomainHistoryStep(DSquareElement* elements,
 	return 1;
 }
 
-// Injectable in the small C++ regression test; production always uses pthread_create.
+// Convolution pool test hook; assembly and export use g_assemblyCreateThread.
 static auto g_historyCreateThread = &pthread_create;
 
 static bool HistoryRowsHaveUniqueOwners(DSquareElement* elements,
@@ -2670,62 +2644,22 @@ static bool HistoryRowsHaveUniqueOwners(DSquareElement* elements,
     return true;
 }
 
-static int AssembleMultiDomainHistoryDomainPthread(DSquareElement* elements,
-	const GlobalDofMap& dofMap, const Domain& domain, long step, long requestedThreads,
-	MultiDomainCCSRBuilder& mtsBuilder, MultiDomainCCSRBuilder& mgsBuilder)
-{
-	const long sourceCount = (long)domain.elementIds.size();
-	if (sourceCount <= 0) return 1;
-	const long count = EffectiveMultiDomainThreadCount(domain, requestedThreads);
-	std::vector<pthread_t> threads((size_t)count);
-	std::vector<MultiDomainHistoryThreadArg> args((size_t)count);
-	long created = 0;
-	int ok = 1;
-	for (long t = 0; t < count; ++t)
-	{
-		auto& arg = args[(size_t)t];
-		arg.elements = elements;
-		arg.domain = &domain;
-		arg.dofMap = &dofMap;
-		arg.step = step;
-		arg.mtsBuilder = &mtsBuilder;
-		arg.mgsBuilder = &mgsBuilder;
-		SetThreadSourceRange(sourceCount, t, count, arg.sourceBegin, arg.sourceEnd);
-		arg.threadId = t;
-		if (count == 1)
-			MultiDomainHistoryThreadMain(&arg);
-		else
-		{
-			const int code = g_historyCreateThread(&threads[(size_t)t], 0, MultiDomainHistoryThreadMain, &arg);
-			if (code)
-			{
-				printf("MultiDomain History pthread_create failed step=%ld domain=%d thread=%ld code=%d\n", step, domain.id, t, code);
-				ok = 0;
-				break;
-			}
-			++created;
-		}
-	}
-	for (long t = 0; t < created; ++t) RequireThreadSuccess(pthread_join(threads[(size_t)t], NULL), "pthread_join");
-	for (long t = 0; t < (count == 1 ? 1 : created); ++t)
-	{
-		if (args[(size_t)t].ok != 1) ok = -1;
-	}
-	return ok;
-}
-
-#include "step0_pool.h"
+#include "assembly_pool.h"
 
 static int AssembleMultiDomainStep0Pthread(const MultiDomainInterfaceCache& interfaceCache,
     DSquareElement* elements, const MultiDomainModel& model, const GlobalDofMap& dofMap,
     long** infElePid, long** elePid, MultiDomainCCSRBuilder& unknownBuilder,
-    MultiDomainCCSRBuilder& knownBuilder, long requestedThreads)
+    MultiDomainCCSRBuilder& knownBuilder, long requestedThreads, MultiDomainAssemblyPool* sharedPool = nullptr)
+try
 {
     if (!elements || !AssemblyInputValid(model, dofMap)) return 0;
     const bool serialRequested = requestedThreads <= 1 || MultiDomainPthreadAssemblyDisabled();
-    bool supported = DSquareElement::Flagproblem == 0;
-    for (long ele = 0; ele < model.elementCount; ++ele)
-        supported = supported && elements[ele].InfEleFlag == -1;
+    bool supported = true;
+    if (!sharedPool) {
+        supported = DSquareElement::Flagproblem == 0;
+        for (long ele = 0; ele < model.elementCount; ++ele)
+            supported = supported && elements[ele].InfEleFlag == -1;
+    }
     if (!supported) {
         if (serialRequested)
             return AssembleMultiDomainStep0(interfaceCache, elements, model, dofMap,
@@ -2735,29 +2669,28 @@ static int AssembleMultiDomainStep0Pthread(const MultiDomainInterfaceCache& inte
     }
     long count = serialRequested ? 1 : (std::min)(requestedThreads, thread_num);
     if (count < 1) { fprintf(stderr, "Step0 invalid thread count\n"); return 0; }
-    Step0ThreadPool pool(elements, model, dofMap, interfaceCache, infElePid, elePid, count);
+    std::unique_ptr<MultiDomainAssemblyPool> ownedPool;
+    if (!sharedPool) {
+        ownedPool.reset(new MultiDomainAssemblyPool(elements, model, dofMap, interfaceCache, infElePid, elePid, count));
+        sharedPool = ownedPool.get();
+    }
+    auto& pool = *sharedPool;
     std::vector<int> originalBCIDs;
     if (DBEMPolicy::assemblyCrossCheck)
         for (long ele = 0; ele < model.elementCount; ++ele) originalBCIDs.push_back(elements[ele].BCID);
-    if (!pool.Initialize()) {
+    if (ownedPool && !pool.Initialize()) {
         if (!PermitSerialFallback("Step0 pool initialization")) return 0;
         return AssembleMultiDomainStep0(interfaceCache, elements, model, dofMap,
             infElePid, elePid, unknownBuilder, knownBuilder);
     }
     unknownBuilder.Reset(dofMap.equationBlockCount, dofMap.unknownBlockCount);
     knownBuilder.Reset(dofMap.equationBlockCount, dofMap.knownBlockCount);
-    for (const auto& domain : model.domains) {
-        long taskCount = (std::min)(count, (long)domain.elementIds.size());
-        std::vector<Step0Task> tasks((size_t)taskCount);
-        for (long task = 0; task < taskCount; ++task) {
-            tasks[(size_t)task].domainId = domain.id;
-            SetThreadSourceRange((long)domain.elementIds.size(), task, taskCount,
-                tasks[(size_t)task].sourceBegin, tasks[(size_t)task].sourceEnd);
-        }
-        if (!pool.RunBatch(tasks)) return 0;
-        pool.MergeInto(unknownBuilder, knownBuilder);
+    if (!pool.RunBatch(pool.SourceTasks())) {
+        if (!pool.ResourceFailed() || !PermitSerialFallback("Step0 assembly")) return 0;
+        return AssembleMultiDomainStep0(interfaceCache, elements, model, dofMap,
+            infElePid, elePid, unknownBuilder, knownBuilder);
     }
-    pool.Close();
+    pool.MergeInto(unknownBuilder, knownBuilder);
     if (DBEMPolicy::assemblyCrossCheck) {
         for (long ele = 0; ele < model.elementCount; ++ele)
             if (originalBCIDs[(size_t)ele] != elements[ele].BCID)
@@ -2768,40 +2701,57 @@ static int AssembleMultiDomainStep0Pthread(const MultiDomainInterfaceCache& inte
         infElePid, elePid, unknownBuilder, knownBuilder);
 }
 
+catch (const std::bad_alloc&) {
+    if (!PermitSerialFallback("Step0 allocation")) return 0;
+    return AssembleMultiDomainStep0(interfaceCache, elements, model, dofMap,
+        infElePid, elePid, unknownBuilder, knownBuilder);
+}
+
 static int AssembleMultiDomainHistoryStepPthread(DSquareElement* elements,
 	const MultiDomainModel& model,
 	const GlobalDofMap& dofMap,
 	long step,
 	MultiDomainCCSRBuilder& mtsBuilder,
 	MultiDomainCCSRBuilder& mgsBuilder,
-	long requestedThreads, bool uniqueRows)
+	long requestedThreads, bool uniqueRows, MultiDomainAssemblyPool* pool = nullptr)
+try
 {
 	if (!elements || step <= 0 || !AssemblyInputValid(model, dofMap))
 		return 0;
 	if (!uniqueRows) { fprintf(stderr, "MultiDomain history row ownership invalid; stopping.\n"); return 0; }
-    if (requestedThreads <= 1 || MultiDomainPthreadAssemblyDisabled())
+    if (!pool && (requestedThreads <= 1 || MultiDomainPthreadAssemblyDisabled()))
 		return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
 
 	mtsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyUBlockCount, false, MultiDomainCCSRBuilder::IndependentRows);
 	mgsBuilder.Reset(dofMap.equationBlockCount, dofMap.historyTBlockCount, false, MultiDomainCCSRBuilder::IndependentRows);
 	const double integrationStart = DBEMWallTime();
-	for (size_t d = 0; d < model.domains.size(); ++d)
-	{
-		const Domain& domain = model.domains[d];
-		const int status = AssembleMultiDomainHistoryDomainPthread(elements, dofMap, domain, step, requestedThreads,
-            mtsBuilder, mgsBuilder);
-        if (status != 1)
-		{
-			if (status < 0 || !PermitSerialFallback("history assembly")) return 0;
-			return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
-		}
-	}
+    std::unique_ptr<MultiDomainInterfaceCache> ownedCache;
+    std::unique_ptr<MultiDomainAssemblyPool> ownedPool;
+    if (!pool) {
+        ownedCache.reset(new MultiDomainInterfaceCache(model, elements));
+        ownedPool.reset(new MultiDomainAssemblyPool(elements, model, dofMap, *ownedCache,
+            nullptr, nullptr, (std::min)(requestedThreads, thread_num)));
+        pool = ownedPool.get();
+        if (!pool->Initialize()) {
+            if (!PermitSerialFallback("history pool initialization")) return 0;
+            return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
+        }
+    }
+    if (!pool->RunHistory(step, mtsBuilder, mgsBuilder)) {
+        if (!pool->ResourceFailed() || !PermitSerialFallback("history assembly")) return 0;
+        return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
+    }
 
 	DBEMWriteTiming("multidomain.assembly.history.integration", DBEMWallTime() - integrationStart, step);
 	const double checkStart = DBEMWallTime();
 	const int result = CompareOrFallbackHistory(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
 	DBEMWriteTiming("multidomain.assembly.history.check", DBEMWallTime() - checkStart, step);
 	return result;
+}
+
+catch (const std::bad_alloc&) {
+    if (!PermitSerialFallback("history allocation")) return 0;
+    return AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder);
 }
 
 // Output phases only touch preallocated arrays or independent row containers.
@@ -2857,38 +2807,31 @@ static void* RunHistoryOutputTask(void* data)
 	return 0;
 }
 
-static bool ExecuteHistoryOutputTasks(std::vector<HistoryOutputTask>& tasks, int phase, long step)
+static bool ExecuteHistoryOutputTasks(std::vector<HistoryOutputTask>& tasks, int phase, long step,
+    MultiDomainAssemblyPool& pool)
 {
-	for (auto& task : tasks) task.phase = phase;
-	if (tasks.size() == 1)
-	{
-		RunHistoryOutputTask(&tasks[0]);
-		return true;
-	}
-	std::vector<pthread_t> threads(tasks.size());
-	size_t created = 0;
-	for (; created < tasks.size(); ++created)
-	{
-		const int code = g_historyCreateThread(&threads[created], 0, RunHistoryOutputTask, &tasks[created]);
-		if (code)
-		{
-			printf("MultiDomain history output pthread_create failed step=%ld phase=%d thread=%zu code=%d.\n",
-				step, phase, created, code);
-			break;
-		}
-	}
-	for (size_t i = 0; i < created; ++i) RequireThreadSuccess(pthread_join(threads[i], NULL), "pthread_join");
-	if (created != tasks.size() && !PermitSerialFallback("history output")) return false;
-	for (size_t i = created; i < tasks.size(); ++i) RunHistoryOutputTask(&tasks[i]);
-	return true;
+    std::vector<AssemblyTask> work;
+    work.reserve(tasks.size());
+    for (auto& task : tasks) {
+        task.phase = phase;
+        if (task.begin == task.end) continue;
+        AssemblyTask job;
+        job.kind = AssemblyTaskKind::Output;
+        job.sourceBegin = task.begin; job.sourceEnd = task.end;
+        job.output = &task; job.exportRows = RunHistoryOutputTask; job.phase = phase;
+        work.push_back(job);
+    }
+    return pool.RunBatch(work, {step, nullptr, nullptr});
 }
 
 // Consumes independent row storage after exporting it; global-map fallbacks
 // retain their legacy storage. Callers record block counts before this call.
 static bool BuildHistoryMatrices(MultiDomainCCSRBuilder& mts, MultiDomainCCSRBuilder& mgs,
 	CCSRMat& outT, SymCCSRMat& outSymG, CCSRMat& outG, bool& symmetric,
-	long requestedThreads, long step)
+	long requestedThreads, long step, MultiDomainAssemblyPool* callerPool = nullptr)
+try
 {
+    MultiDomainAssemblyPool* sharedPool = callerPool;
 	if (!mts.HasIndependentRows() || !mgs.HasIndependentRows())
 	{
 		const double start = DBEMWallTime();
@@ -2902,6 +2845,17 @@ static bool BuildHistoryMatrices(MultiDomainCCSRBuilder& mts, MultiDomainCCSRBui
 		DBEMWriteTiming("multidomain.assembly.history.output.serial", DBEMWallTime() - start, step);
 		return true;
 	}
+    std::unique_ptr<MultiDomainAssemblyPool> ownedPool;
+    if (!sharedPool) {
+        ownedPool.reset(new MultiDomainAssemblyPool((std::max)(1L, requestedThreads)));
+        sharedPool = ownedPool.get();
+        if (!sharedPool->Initialize()) {
+            if (!PermitSerialFallback("history output pool initialization")) return false;
+            ownedPool.reset(new MultiDomainAssemblyPool(1));
+            sharedPool = ownedPool.get();
+            if (!sharedPool->Initialize()) return false;
+        }
+    }
 	const double prefixStart = DBEMWallTime();
 	const long rows = mts.BlockRows();
 	std::vector<int> offsetsT((size_t)rows + 1, 0), offsetsG((size_t)rows + 1, 0);
@@ -2940,7 +2894,7 @@ static bool BuildHistoryMatrices(MultiDomainCCSRBuilder& mts, MultiDomainCCSRBui
 	}
 	DBEMWriteTiming("multidomain.assembly.history.output.prefix", DBEMWallTime() - prefixStart, step);
 	const double symmetryStart = DBEMWallTime();
-	if (!ExecuteHistoryOutputTasks(tasks, 0, step)) return false;
+	if (!ExecuteHistoryOutputTasks(tasks, 0, step, *sharedPool)) return false;
 	symmetric = true;
 	for (const auto& task : tasks) symmetric = symmetric && task.symmetric;
 	for (auto& task : tasks) task.symmetric = symmetric;
@@ -2953,14 +2907,18 @@ static bool BuildHistoryMatrices(MultiDomainCCSRBuilder& mts, MultiDomainCCSRBui
 	std::copy(offsetsG.begin(), offsetsG.end(), symmetric ? outSymG.row_ptr : outG.row_ptr);
 	DBEMWriteTiming("multidomain.assembly.history.output.allocate", DBEMWallTime() - allocateStart, step);
 	const double fillStart = DBEMWallTime();
-	if (!ExecuteHistoryOutputTasks(tasks, 1, step)) return false;
+	if (!ExecuteHistoryOutputTasks(tasks, 1, step, *sharedPool)) return false;
 	DBEMWriteTiming("multidomain.assembly.history.output.fill", DBEMWallTime() - fillStart, step);
 	const double clearStart = DBEMWallTime();
-	if (!ExecuteHistoryOutputTasks(tasks, 2, step)) return false;
+	if (!ExecuteHistoryOutputTasks(tasks, 2, step, *sharedPool)) return false;
 	DBEMWriteTiming("multidomain.assembly.history.output.clear", DBEMWallTime() - clearStart, step);
 	return true;
 }
-
+catch (const std::bad_alloc&) {
+    fprintf(stderr, "History export allocation failed step=%ld\n", step);
+    if (callerPool) callerPool->RecordResourceFailure();
+    return false;
+}
 
 static void FillDeterministicVector(Wvector& x)
 {
@@ -4599,10 +4557,34 @@ try
 		MaxN = NStep;
 	printf("MultiDomain MaxN = %ld\n", MaxN);
 
+    std::unique_ptr<MultiDomainAssemblyPool> assemblyPool;
+    bool serialAssembly = MultiDomainPthreadAssemblyDisabled();
+    if (!serialAssembly && thread_num <= 1) {
+        // Preserve explicitly chosen legacy serial paths for unsupported kernels.
+        serialAssembly = DSquareElement::Flagproblem != 0;
+        for (long e = 0; e < model.elementCount; ++e)
+            serialAssembly = serialAssembly || elements[e].InfEleFlag != -1;
+    }
+    if (!serialAssembly) {
+        try {
+            assemblyPool.reset(new MultiDomainAssemblyPool(elements, model, dofMap, interfaceCache,
+                infElePid, elePid, (std::max)(1L, thread_num), true));
+            if (!assemblyPool->Initialize()) {
+                if (!PermitSerialFallback("assembly pool initialization")) return -1;
+                assemblyPool.reset(); serialAssembly = true;
+            }
+        } catch (const std::bad_alloc&) {
+            if (!PermitSerialFallback("assembly pool allocation")) return -1;
+            assemblyPool.reset(); serialAssembly = true;
+        }
+    }
 	MultiDomainCCSRBuilder unknownBuilder(dofMap.equationBlockCount, dofMap.unknownBlockCount);
 	MultiDomainCCSRBuilder knownBuilder(dofMap.equationBlockCount, dofMap.knownBlockCount);
 	double matrixClock = DBEMWallTime();
-	if (!AssembleMultiDomainStep0Pthread(interfaceCache, elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder, thread_num))
+	if (!(serialAssembly
+        ? AssembleMultiDomainStep0(interfaceCache, elements, model, dofMap, infElePid, elePid, unknownBuilder, knownBuilder)
+        : AssembleMultiDomainStep0Pthread(interfaceCache, elements, model, dofMap, infElePid, elePid,
+            unknownBuilder, knownBuilder, thread_num, assemblyPool.get())))
 		return -1;
 
 	printf("MultiDomain MTS0 blocks = %ld\n", unknownBuilder.NonZeroBlocks());
@@ -4637,7 +4619,10 @@ try
 		const double historyClock = DBEMWallTime();
 		MultiDomainCCSRBuilder mtsBuilder(dofMap.equationBlockCount, dofMap.historyUBlockCount, false);
 		MultiDomainCCSRBuilder mgsBuilder(dofMap.equationBlockCount, dofMap.historyTBlockCount, false);
-		if (!AssembleMultiDomainHistoryStepPthread(elements, model, dofMap, step, mtsBuilder, mgsBuilder, thread_num, uniqueHistoryRows))
+		if (!(serialAssembly
+            ? AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder)
+            : AssembleMultiDomainHistoryStepPthread(elements, model, dofMap, step, mtsBuilder, mgsBuilder,
+                thread_num, uniqueHistoryRows, assemblyPool.get())))
 		{
 			return -1;
 		}
@@ -4645,10 +4630,15 @@ try
 		const long mgsBlocks = mgsBuilder.NonZeroBlocks();
 		bool symmetric = true;
 		if (!BuildHistoryMatrices(mtsBuilder, mgsBuilder, MTS[step], MGS[step], MGSFull[step],
-			symmetric, thread_num, step))
-		{
-			return -1;
-		}
+            symmetric, serialAssembly ? 1 : thread_num, step, assemblyPool.get()))
+        {
+            if (!assemblyPool || !assemblyPool->ResourceFailed() || !PermitSerialFallback("history export"))
+                return -1;
+            // Export may already have cleared rows. Rebuild the entire lag.
+            if (!AssembleMultiDomainHistoryStep(elements, model, dofMap, step, mtsBuilder, mgsBuilder) ||
+                !BuildHistoryMatrices(mtsBuilder, mgsBuilder, MTS[step], MGS[step], MGSFull[step], symmetric, 1, step))
+                return -1;
+        }
 		MGSUseSym[step] = symmetric ? 1 : 0;
 		if (!symmetric)
 			printf("MultiDomain MGS[%ld] has non-symmetric 3x3 blocks; using full CCSR representation for this step.\n", step);
@@ -4657,6 +4647,7 @@ try
 		totalHistoryGBlocks += mgsBlocks;
 		printf("MultiDomain history step %ld: MTS blocks=%ld MGS blocks=%ld\n", step, mtsBlocks, mgsBlocks);
 	}
+	assemblyPool.reset();
 	double matrixAssemblyTime = DBEMWallTime() - matrixClock;
 
 	DBEMWriteTiming("multidomain.assembly.total", matrixAssemblyTime);

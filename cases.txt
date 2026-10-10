@@ -1,0 +1,5 @@
+# 每行一个模型名，与 DBEM1/input 中的 .model、.bd、.DATACARD 同名。
+# 同名模型在子目录时写 子目录/模型名。
+10domain_2x2x20rod_4
+10domain_2x2x20rod_8
+cube

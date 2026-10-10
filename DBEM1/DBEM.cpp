@@ -1303,7 +1303,8 @@ int main()
 		DBEMWriteTiming("run.solve", endtime - temptime);
 		temptime = endtime;
 
-		//tecplot
+		// Skip Tecplot preparation and writing when disabled.
+		if (DBEMPolicy::tecplotOutput)
 		for(i=0;i<=NStep;++i)
 			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile_1node").c_str(),amplitude);
 
@@ -1353,7 +1354,8 @@ int main()
 			printf("end ACA\n");
 		}
 
-		//tecplot
+		// Skip Tecplot preparation and writing when disabled.
+		if (DBEMPolicy::tecplotOutput)
 		for(i=0;i<=NStep;++i)
 			ResultPlotNodeAverage_14VARS(m_DSE,m_PointList,m_ElePID,bdid,bd[i],i,PointNum,NodeNum,EleNum,DBEMOutputPath("TecValueFile").c_str(),amplitude);
 

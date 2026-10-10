@@ -36,6 +36,9 @@ output/
 validation_runs/
 DBEM1/reports
 tools/
+tests/
+origin_projects/
+tmp/
 # Local MSVC runtime copies; use installed Visual Studio/MSVC instead
 include/
 lib/

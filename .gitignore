@@ -57,3 +57,15 @@ DBEM1/1
 DBEM1/run_capture*.txt
 *.before_1node_plan
 /DBEM1/tests
+
+# Reproducible wavefront quadrature validation suite
+!/DBEM1/tests/
+/DBEM1/tests/*
+!/DBEM1/tests/wavefront_*.py
+!/DBEM1/tests/wavefront_probe.cpp
+!/DBEM1/tests/build_wavefront_tests.py
+!/DBEM1/tests/run_wavefront_*.py
+!/DBEM1/tests/build_discretization_audit.py
+!/DBEM1/tests/run_single_domain_stability.py
+!/DBEM1/tests/run_step0_policy_tests.py
+/DBEM1/tests

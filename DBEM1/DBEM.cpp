@@ -1,4 +1,5 @@
 ﻿#include <cerrno>
+#include <exception>
 #include "solver_policy.h"
 #include "stdio.h"
 #include "DSquareElement.h"
@@ -455,8 +456,8 @@ static bool WriteValidationOutputs(DSquareElement* elements,
     fopen_s(&state, temporaryPath.c_str(), "w");
 	if (state)
 	{
-		fprintf(state, "step,element,localNode,nodeId,domain,surfaceType,bcid,x,y,z,ux,uy,uz,tx,ty,tz\n");
-		for (long step = 0; step <= NStep; ++step)
+		fprintf(state, "step,element,nodeId,domain,x,y,z,ux,uy,uz,tx,ty,tz\n");
+		for (long step = 0; step <= NStep; step+=2)
 		{
 			for (long ele = 0; ele < eleCount; ++ele)
 			{
@@ -467,14 +468,11 @@ static bool WriteValidationOutputs(DSquareElement* elements,
 					long base = nodeId * 3;
 					Point& pt = elements[ele].m_nodelist[nodeId];
 					fprintf(state,
-						"%ld,%ld,%d,%ld,%d,%d,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
+						"%ld,%ld,%ld,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
 						step,
 						ele,
-						localNode,
 						nodeId,
 						elements[ele].DomainID,
-						elements[ele].SurfaceType,
-						bcid,
 						pt.pt[0],
 						pt.pt[1],
 						pt.pt[2],
@@ -575,6 +573,8 @@ static bool WriteValidationOutputs(DSquareElement* elements,
 //int DBEM_main() { return 0; };
 int main()
 {
+    try {
+
 	DBEMPolicy::Print();
 	//--------------变量定义----------------
 	int m_flag = 0;
@@ -1412,6 +1412,12 @@ int main()
 
 	return 1;
 
+
+    } catch (const std::exception& error) {
+        fprintf(stderr,"DBEM failed: %s\n",error.what()); return 2;
+    } catch (...) {
+        fprintf(stderr,"DBEM failed: unexpected exception\n"); return 2;
+    }
 }
 
 // 根据几何节点信息获取物理点信息

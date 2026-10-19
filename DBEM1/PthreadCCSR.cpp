@@ -1,4 +1,6 @@
 ﻿#include "PthreadCCSR.h"
+#include "wavefront_quadrature.h"
+#include <exception>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -155,6 +157,7 @@ void GmresThreadDiagEnd()
 
 
 void *PthGetMatrixDynaUnknown0ij(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -194,8 +197,12 @@ void *PthGetMatrixDynaUnknown0ij(void* arg)
 
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void* PthGetMatrixDynaUnknown0ijT0(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -241,8 +248,12 @@ void* PthGetMatrixDynaUnknown0ijT0(void* arg)
 
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void *PthGetMatrixDynaKnown0ij(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -280,8 +291,12 @@ void *PthGetMatrixDynaKnown0ij(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void *PthGetMatrixDynaT1ij(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -367,8 +382,12 @@ void *PthGetMatrixDynaT1ij(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void* PthGetMatrixDynaT1ijNew(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = PthTemp->targs;
@@ -446,8 +465,12 @@ void* PthGetMatrixDynaT1ijNew(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void *PthGetMatrixDynaT2ij(void* arg)
+try
 {
 
 	PthArg* PthTemp = (PthArg*)arg;
@@ -614,8 +637,12 @@ void *PthGetMatrixDynaT2ij(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void* PthGetMatrixDynaT2ijNew(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = PthTemp->targs;
@@ -773,8 +800,12 @@ void* PthGetMatrixDynaT2ijNew(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void *PthGetMatrixDynaUij(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -819,8 +850,12 @@ void *PthGetMatrixDynaUij(void* arg)
 
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void* PthGetMatrixDynaSymUij(void* arg)
+try
 {
 
 	PthArg* PthTemp = (PthArg*)arg;
@@ -885,8 +920,12 @@ void* PthGetMatrixDynaSymUij(void* arg)
 
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 void* PthGetMatrixDynaSymUijNew(void* arg)
+try
 {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = PthTemp->targs;
@@ -921,6 +960,9 @@ void* PthGetMatrixDynaSymUijNew(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& error) { Wavefront::RecordWorkerFailure(error.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("Unexpected legacy integration worker failure"); return nullptr; }
+
 
 
 void* PthSparseConvertCCSR(void* arg)

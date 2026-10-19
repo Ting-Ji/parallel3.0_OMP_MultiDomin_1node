@@ -155,6 +155,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="wavefront_quadrature.h" />
     <ClInclude Include="aca.h" />
     <ClInclude Include="counter.h" />
     <ClInclude Include="DBEM.h" />
@@ -172,6 +173,7 @@
     <ClInclude Include="pre_gmres.h" />
     <ClInclude Include="PthreadCCSR.h" />
     <ClInclude Include="quadinfo.h" />
+    <ClInclude Include="solver_policy.h" />
     <ClInclude Include="tree.h" />
     <ClInclude Include="write_tec.h" />
   </ItemGroup>
@@ -181,6 +183,7 @@
     <ClCompile Include="DBEM.cpp" />
     <ClCompile Include="dsquareelement.cpp" />
     <ClCompile Include="dsquareelementdyna.cpp" />
+    <ClCompile Include="wavefront_quadrature.cpp" />
     <ClCompile Include="gaussnumematrix.cpp" />
     <ClCompile Include="Gauss_solver.cpp" />
     <ClCompile Include="geo.cpp" />

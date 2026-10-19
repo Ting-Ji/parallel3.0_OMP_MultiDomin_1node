@@ -629,24 +629,24 @@ def write_legacy_datacard(path: Path, case_name: str, cfg: Config) -> None:
 # Editable default parameters. Run this script to regenerate the current rod120 case.
 # ============================================================
 class Config:
-    domains: int = 1              # axial domain count
-    case: str = "1domain_2x2x20rod_2"           # case name
-    out_dir: str = "DBEM1/input"   # output directory
+    domains: int = 8              # axial domain count
+    case: str = "8domain_2x2x20rod_4"           # case name
+    out_dir: str = "DBEM1/input/experiment_09_界面穿越次数"   # output directory
     card_out: str = ""             # datacard output path; empty = input/<case>.DATACARD
     write_single_domain_case: bool = False  # write a single-domain outer-surface case
     single_case_suffix: str = ""
     single_card_out: str = ""      # empty = input/<case>_single.DATACARD
 
-    length: float = 4           # rod length
+    length: float = 20           # rod length
     width: float = 2             # cross-section width
     height: float =2             # cross-section height
 
     # Mesh subdivisions per domain face.
-    nx: int = 4                    # x-axis subdivisions on side faces
-    ny: int = 2                   # y subdivisions
-    nz: int = 2                    # z subdivisions
+    nx: int = 5                    # x-axis subdivisions on side faces
+    ny: int = 4                   # y subdivisions
+    nz: int = 4                    # z subdivisions
 
-    nstep: int = 1500                # time steps
+    nstep: int = 1000                # time steps
     load_axis: str = "x"           # global load direction: "x", "y", "z"
     load_amplitude: float = 0.2   # right-end traction amplitude
     time_function: str = "constant"  # "constant", "ramp", "sine"
@@ -660,7 +660,7 @@ class Config:
     rho: float = 8
     amplify: float = 1.0
     iterations: int = 200
-    error: float = 1.0e-7
+    error: float = 1.0e-9
     premaxleafpointnum: int = 10
 
 def main() -> None:

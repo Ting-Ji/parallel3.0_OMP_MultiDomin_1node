@@ -1,4 +1,7 @@
 ﻿#include <stdexcept>
+#include <limits>
+#include <cmath>
+#include "solver_policy.h"
 #include "DSquareElement.h"
 #include "lin_comp.h"
 #include "stdio.h"
@@ -379,6 +382,7 @@ void DSquareElement::GeoInit(Point* pointlist, long* pointID)
 	}
 
 	m_radiusPW = m_radius / NUMPW;
+	m_wavefrontGeometry = Wavefront::BuildGeometry(*this);
 
 }
 
@@ -1156,6 +1160,13 @@ int DSquareElement::JSeries(double n, double dt, double* R, double& ResJSeries)
 
 int DSquareElement::NeedCal(int type, double n, Point& o_Point)
 {
+    if (DBEMPolicy::wavefrontIntegration) {
+        if (!std::isfinite(n) || n < 0 || n != floor(n) || n >= (double)(std::numeric_limits<long>::max)())
+            throw std::runtime_error("invalid lag in wavefront classification");
+        Wavefront::Vec source{{o_Point.pt[0],o_Point.pt[1],o_Point.pt[2]}};
+        return Wavefront::Classify(*this,source,(long)n,type==2,ActiveDynaMat());
+    }
+
 	// 该函数用来判断源点与场点单元的距离是否满足计算动态系数的条件
 	// 0: 没有收到波动影响，不参与计算
 	// 1: 部分收到波动影响，调用PW计算
@@ -1906,6 +1917,7 @@ int DSquareElement::IntTijforInfEle(Point& source,int type)
 
 int DSquareElement::IntDynaUij(Point& source, double n, double dt)
 {
+	if (DBEMPolicy::wavefrontIntegration) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -1955,6 +1967,7 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaUij(Point& source, double n, double dt, long T_ID)
 {
+	if (DBEMPolicy::wavefrontIntegration) return IntDynaWavefront(Wavefront::Kernel::U,source,n,T_ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp;
@@ -2011,6 +2024,7 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt, long T_ID)
 
 int DSquareElement::IntDynaUij(Point& source, double n, double dt, int ID)
 {
+	if (DBEMPolicy::wavefrontIntegration) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -2051,6 +2065,7 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt)
 {
+	if (DBEMPolicy::wavefrontIntegration) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -2099,6 +2114,7 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt)
 
 int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, int ID)
 {
+	if (DBEMPolicy::wavefrontIntegration) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp=0;
@@ -2233,6 +2249,7 @@ int DSquareElement::IntDynaTij(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, long T_ID)
 {
+	if (DBEMPolicy::wavefrontIntegration) return IntDynaWavefront(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,T_ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp;

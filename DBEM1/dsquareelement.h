@@ -5,6 +5,7 @@
 #include "GaussNumeMatrix.h"
 #include "mat_vec.h"
 #include "quadinfo.h"
+#include "wavefront_quadrature.h"
 //time count
 #include "Counter.h"
 //#include "DBEM.h"
@@ -203,6 +204,7 @@ public:
 
 	// ————————略占空间，不做修改，暂存
 	// 用于判断是否分片积分   
+	std::shared_ptr<const Wavefront::Geometry> m_wavefrontGeometry;
 	Point m_rcenPW[NUMPW2];
 	Point m_center;
 	double m_radius,m_radiusPW;
@@ -255,6 +257,8 @@ public:
 
 	// 初始化
 	
+	int IntDynaWavefront(Wavefront::Kernel kernel, Point& source, double n, long threadId);
+	int IntDynaWavefrontLocal(Wavefront::Kernel kernel, Point& source, double n, int physicalNode = -1);
 	DSquareElement() : BCID(0), DomainID(0), LocalEleID(0), SurfaceType(0) {;}
 	~DSquareElement(){;}
 	static void StaticInit(double gap,double o_v,double o_G,double o_Rou,double o_dt,int o_FlagDynaMethod);

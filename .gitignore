@@ -69,3 +69,9 @@ DBEM1/run_capture*.txt
 !/DBEM1/tests/run_single_domain_stability.py
 !/DBEM1/tests/run_step0_policy_tests.py
 /DBEM1/tests
+
+!/DBEM1/tests/wavefront_grazing_probe.cpp
+
+# Keep the wavefront regressions visible after the project test-directory rule.
+!/DBEM1/tests/
+/DBEM1/tests

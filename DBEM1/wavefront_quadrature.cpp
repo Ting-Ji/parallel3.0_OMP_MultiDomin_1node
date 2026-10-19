@@ -201,9 +201,30 @@ std::shared_ptr<const Geometry> BuildGeometry(DSquareElement&e){
    Cell child;child.a=i?u:c.a;child.b=i?c.b:u;child.c=j?v:c.c;child.d=j?c.d:v;child.depth=c.depth+1;pending.push_back(child);
   }
  }
+ // A cached Bernstein-hull sphere gives an O(1), conservative rejection
+ // before the tighter source-dependent distance-square bounds. It remains
+ // valid for curved panels; the old corner-only radius is not reused.
+ Vec samples[3][3],rows[3][3],controls[3][3];
+ for(int i=0;i<3;++i)for(int j=0;j<3;++j)samples[i][j]=sub(point(*g,i-1.,j-1.),g->origin);
+ for(int j=0;j<3;++j){
+  rows[0][j]=samples[0][j];rows[2][j]=samples[2][j];
+  rows[1][j]=sub(mul(samples[1][j],2),mul(add(samples[0][j],samples[2][j]),.5));
+ }
+ for(int i=0;i<3;++i){
+  controls[i][0]=rows[i][0];controls[i][2]=rows[i][2];
+  controls[i][1]=sub(mul(rows[i][1],2),mul(add(rows[i][0],rows[i][2]),.5));
+ }
+ for(auto&row:controls)for(auto&v:row)g->boundingRadius=(std::max)(g->boundingRadius,norm(v));
+ g->boundingRadius+=128*eps*(norm(g->origin)+g->diameter);
  (void)rules();return g;
 }
 namespace {
+
+bool quicklyOutside(const Geometry&g,const Vec&source,double inner,double outer){
+ double distance=norm(sub(g.origin,source));
+ double pad=64*eps*(norm(source)+norm(g.origin)+g.boundingRadius+distance);
+ return distance-g.boundingRadius-pad>=outer||distance+g.boundingRadius+pad<inner;
+}
 
 double polynomial(const std::vector<double>&c,double x){
  double value=0;for(auto i=c.rbegin();i!=c.rend();++i)value=value*x+*i;return value;
@@ -302,10 +323,26 @@ struct Context{
  :e(ee),kind(k),lag(l),mat(m),opt(o),g(gg),source(s),result(r),planar(gg.planar){
   lowerTime=(k==Kernel::T2?l-1:l)*m.Dt;upperTime=lowerTime+m.Dt;
   inner=m.C2*(std::max)(0.,lowerTime);outer=m.C1*upperTime;
+  fronts.reserve(4);
   for(double c:{m.C1,m.C2})for(double t:{lowerTime,upperTime})if(t>0)fronts.push_back(c*t);
   std::sort(fronts.begin(),fronts.end());fronts.erase(std::unique(fronts.begin(),fronts.end()),fronts.end());
  }
  bool outside(const Bounds&b)const{return b.high<inner||b.low>=outer;}
+ // A reference scale must not disappear when a front merely touches a
+ // vertex. S alone would turn the nominal absolute tolerance into another
+ // relative test on a roundoff-sized sliver. Use the full-panel area and a
+ // characteristic source-panel length; this is a dimensional normalization,
+ // not a bound on a near-singular kernel and not a time-support epsilon.
+ double characteristicScale(const Bounds&whole)const{
+  const double r=(std::max)(g.diameter,norm(sub(g.origin,source)));
+  const double factor=whole.area/(4*pi*mat.Rou);
+  const double cs2=mat.C2*mat.C2;
+  if(kind==Kernel::U)return factor/(cs2*r);
+  const double lambda=2*mat.G*mat.v/(1-2*mat.v);
+  return (std::abs(lambda)+2*mat.G)*factor*
+   (1/(cs2*r*r)+1/(cs2*mat.C2*mat.Dt*r));
+ }
+
  Block kernel(const Vec&v,const Vec&normal){
   if(result.statistics.evaluations>=opt.maxEvaluations)throw std::runtime_error("kernel evaluation budget exceeded");
   ++result.statistics.evaluations;
@@ -528,13 +565,17 @@ int Classify(DSquareElement&e,const Vec&source,long lag,bool second,const DynaMa
  if(lag<0||!(mat.Dt>0)||!(mat.C1>=mat.C2)||!(mat.C2>0)||!std::isfinite(mat.C1))
   return 1; // Let the integrating entry report the complete block context.
  if(second&&lag==0)return 0;
- auto geometry=e.m_wavefrontGeometry?e.m_wavefrontGeometry:BuildGeometry(e);
+ std::shared_ptr<const Geometry> localGeometry;
+ const Geometry* geometry=e.m_wavefrontGeometry.get();
+ if(!geometry){localGeometry=BuildGeometry(e);geometry=localGeometry.get();}
  // Invalid geometry or source must reach Integrate, which returns a failed
  // result with domain, element, kernel, lag and source instead of being culled.
  if(!geometry->valid)return 1;
  for(double x:source)if(!std::isfinite(x))return 1;
+ double low=(second?lag-1:lag)*mat.Dt;
+ if(quicklyOutside(*geometry,source,mat.C2*low,mat.C1*(low+mat.Dt)))return 0;
  Cell cell;cell.a=cell.c=-1;cell.b=cell.d=1;
- auto b=bounds(*geometry,source,cell);double low=(second?lag-1:lag)*mat.Dt;
+ auto b=bounds(*geometry,source,cell);
  return b.high<mat.C2*low||b.low>=mat.C1*(low+mat.Dt)?0:1;
 }
 Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const DynaMat&material,const Options&opt){
@@ -549,13 +590,24 @@ Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const Dy
   if(kind==Kernel::T2&&lag==0){result.status=Status::Outside;return result;}
   // Geometry is normally constructed once by GeoInit, before worker threads.
   // A locally constructed cache supports standalone element tests as well.
-  auto geometry=e.m_wavefrontGeometry?e.m_wavefrontGeometry:BuildGeometry(e);
+  std::shared_ptr<const Geometry> localGeometry;
+ const Geometry* geometry=e.m_wavefrontGeometry.get();
+ if(!geometry){localGeometry=BuildGeometry(e);geometry=localGeometry.get();}
   if(!geometry->valid)throw std::runtime_error(geometry->reason);
+  const double low=(kind==Kernel::T2?lag-1:lag)*material.Dt;
+  if(quicklyOutside(*geometry,source,material.C2*low,material.C1*(low+material.Dt))){
+   result.status=Status::Outside;return result;
+  }
   MatScope scope(material);
   Context ctx(e,kind,lag,material,opt,*geometry,source,result);
   Cell whole;whole.a=whole.c=-1;whole.b=whole.d=1;
   Bounds all=bounds(*geometry,source,whole);
   if(ctx.outside(all)){result.status=Status::Outside;return result;}
+  result.characteristicScale=ctx.characteristicScale(all);
+  if(!(result.characteristicScale>0)||!std::isfinite(result.characteristicScale))
+   throw std::runtime_error("invalid characteristic quadrature scale");
+  result.absoluteScale=result.characteristicScale;
+  result.tolerance=opt.scaledAbsoluteTolerance*result.absoluteScale;
   std::vector<Cell> seeds;
   bool anyFront=false;
   for(double front:ctx.fronts)if(all.low<front&&front<all.high)anyFront=true;
@@ -585,7 +637,9 @@ Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const Dy
   while(true){
    error=(std::max)(0.,error);scale=(std::max)(0.,scale);
    result.error=error;result.scale=scale;result.statistics.missedSupportError=missed;
-   double target=opt.relativeTolerance*norm(total)+opt.scaledAbsoluteTolerance*scale;
+   result.absoluteScale=(std::max)(scale,result.characteristicScale);
+   double target=opt.relativeTolerance*norm(total)+opt.scaledAbsoluteTolerance*result.absoluteScale;
+   result.tolerance=target;
    if(forced==0&&error<=target)break;
    if(heap.empty())throw std::runtime_error("maximum adaptive depth exhausted before global convergence");
    Cell c=heap.top();heap.pop();
@@ -607,6 +661,7 @@ Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const Dy
    <<"; domain="<<e.DomainID<<" element="<<e.LocalEleID
    <<" source=("<<source[0]<<","<<source[1]<<","<<source[2]<<") lag="<<lag
    <<" dt="<<material.Dt<<" error="<<result.error<<" scale="<<result.scale
+   <<" characteristicScale="<<result.characteristicScale<<" absoluteScale="<<result.absoluteScale<<" tolerance="<<result.tolerance
    <<" missedSupportBound="<<result.statistics.missedSupportError<<" evaluations="<<result.statistics.evaluations<<" depth="<<result.statistics.maxDepth;
   result.status=Status::Failed;result.message=text.str();result.block.fill(0);
  }

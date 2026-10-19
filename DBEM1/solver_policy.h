@@ -33,6 +33,7 @@
 #ifndef DBEM_WAVEFRONT_REL_TOL
 #define DBEM_WAVEFRONT_REL_TOL 1e-6
 #endif
+// Absolute term: coefficient * max(sampled absolute norm, full-panel characteristic scale).
 #ifndef DBEM_WAVEFRONT_ABS_SCALE
 #define DBEM_WAVEFRONT_ABS_SCALE 1e-10
 #endif
@@ -55,7 +56,7 @@ constexpr bool allowReferenceReplacement = DBEM_POLICY_REFERENCE_REPLACEMENT != 
 
 inline void Print()
 {
-    printf("DBEM integration: wavefront=%d relTol=%.3g absScale=%.3g maxDepth=%u maxEvaluations=%zu\n", wavefrontIntegration, (double)DBEM_WAVEFRONT_REL_TOL, (double)DBEM_WAVEFRONT_ABS_SCALE, (unsigned)DBEM_WAVEFRONT_MAX_DEPTH, (size_t)DBEM_WAVEFRONT_MAX_EVALUATIONS);
+    printf("DBEM integration: wavefront=%d relTol=%.3g absScale=%.3g maxDepth=%u maxEvaluations=%zu absMode=max(sample,characteristic)\n", wavefrontIntegration, (double)DBEM_WAVEFRONT_REL_TOL, (double)DBEM_WAVEFRONT_ABS_SCALE, (unsigned)DBEM_WAVEFRONT_MAX_DEPTH, (size_t)DBEM_WAVEFRONT_MAX_EVALUATIONS);
     printf("DBEM postprocess: tecplotOutput=%d; validation_state.csv always enabled\n", tecplotOutput);
     printf("DBEM policy: validationOutput=%d assemblyCrossCheck=%d solveDiagnostics=%d allowSerialFallback=%d allowReferenceReplacement=%d\n",
         validationOutput, assemblyCrossCheck, solveDiagnostics,

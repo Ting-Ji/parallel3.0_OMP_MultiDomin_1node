@@ -865,8 +865,13 @@ passed=1
 
 ## 普通 U/T 波前积分（2026-10-19）
 
-普通 U、T1、T2 已共用 `wavefront_quadrature` 后端：直边凸平面单元沿波前切分，曲面和平面曲边使用保守距离界与参数面自适应积分。默认混合误差条件为 `1e-6*||I||F + 1e-10*S`；预算不足时明确中止。配置在 `DBEM1/solver_policy.h`，将 `DBEM_POLICY_WAVEFRONT_INTEGRATION` 设为 0 并重编译可做旧积分回归。
+普通 U、T1、T2 已共用 `wavefront_quadrature` 后端：直边凸平面单元沿波前切分，曲面和平面曲边使用保守距离界与参数面自适应积分。默认混合误差条件为 `1e-6*||I||F + 1e-10*max(S,S_char)`；预算不足时明确中止。配置在 `DBEM1/solver_policy.h`，将 `DBEM_POLICY_WAVEFRONT_INTEGRATION` 设为 0 并重编译可做旧积分回归。
 
 在仓库根目录通过 WSL 调用 Windows 工具链：`python.exe DBEM1/tests/wavefront_local.py --build`。完整单域、双域、线程一致性和失败传播的复现命令见根目录 `wavefront_implementation_20261019.md`。测试输入和结果在 `validation_runs/wavefront_implementation_20261019/` 隔离生成。
 
 所列普通积分测试已达标，1/4/8 线程装配矩阵和时程逐字节一致。长时增长仍存在；奇异初始化与时间递推保持原有公式，不能把本次积分修正理解为整体稳定性已解决。正式可执行文件需重新编译。
+
+
+## E08 近零积分块修正（2026-10-19）
+
+波前恰好擦过顶点时，采样核范数 S 也会接近零。当前绝对项采用 `1e-10*max(S,S_char)`，其中 `S_char` 由材料、整元面积和源点—单元特征距离构造，避免对几何舍入残留无限追求相对精度。相对项仍为 `1e-6*||I||F`，求值预算仍为每块200万次；不改变时间支撑或自动降级。详见根目录 `wavefront_budget_fix_20261019.md` 与同名源码修复包。旧单域矩阵缓存的积分修订号已升为2，正式运行需重新编译。

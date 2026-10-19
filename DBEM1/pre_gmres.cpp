@@ -324,7 +324,7 @@ static GmresCcsrCacheHeader GmresMakeCacheHeader(long NodeNum, long EleNum, long
 	header.Rou = DSquareElement::m_DMat.Rou;
 	header.gap = DSquareElement::m_gap;
     header.wavefrontEnabled = DBEMPolicy::wavefrontIntegration ? 1 : 0;
-    header.integrationRevision = 1;
+    header.integrationRevision = 2;
     const int quadrature[6] = {NUMPW,GAUSSPOINTPW,SINNUMPW,SINGAUSSPOINTPW,GAUSSPOINT,SINGAUSSPOINT};
     for (int i=0;i<6;++i) header.quadrature[i]=quadrature[i];
     header.waveRelativeTolerance=DBEM_WAVEFRONT_REL_TOL;

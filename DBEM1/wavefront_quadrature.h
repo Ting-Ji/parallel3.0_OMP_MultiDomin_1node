@@ -22,6 +22,8 @@ struct Statistics {
 struct Result {
  std::array<double,9> block{};
  double error=0, scale=0;
+ // Sampled norm, full-panel characteristic scale, and actual stopping target.
+ double characteristicScale=0, absoluteScale=0, tolerance=0;
  Status status=Status::Failed;
  Statistics statistics;
  std::string message;
@@ -30,7 +32,7 @@ struct Geometry {
  double coefficient[3][8]{};
  std::array<Vec,4> vertices{};
  Vec origin{}, normal{}, axis1{}, axis2{};
- double diameter=0;
+ double diameter=0, boundingRadius=0;
  bool planar=false, valid=false;
  std::string reason;
 };

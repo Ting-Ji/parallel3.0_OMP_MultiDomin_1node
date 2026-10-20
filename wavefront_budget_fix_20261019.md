@@ -87,7 +87,7 @@ E08的1000步残差记录齐全，最大相对代数残差为9.3933e-10；全时
 
 ## 文件与服务器同步
 
-本地修改四个文件：DBEM1/wavefront_quadrature.cpp、wavefront_quadrature.h、solver_policy.h、pre_gmres.cpp。远程服务器仍需同步并完整重编译，本次没有远程连接，没有覆盖服务器默认EXE。
+本地修改四个文件：DBEM1/wavefront_quadrature.cpp、wavefront_quadrature.h、solver_policy.h、pre_gmres.cpp。远程服务器已于2026-10-19 20:08（北京时间）同步、独立编译并通过局部/短程验证，默认EXE已备份更新；详情见wavefront_remote_deployment_20261019.md。下述修复包命令保留供其他副本应用。
 
 根目录的wavefront_budget_fix_20261019.zip包含四个源码文件、fix.patch、前后哈希、带备份的apply_fix.py。解压后在服务器运行：
 

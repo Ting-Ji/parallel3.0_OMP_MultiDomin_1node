@@ -6,6 +6,8 @@
 #include "Counter.h"
 #include "Gauss_solver.h"
 #include <string>
+#include <cmath>
+#include <stdexcept>
 #include <string.h>
 #include <stdlib.h>
 #include <direct.h>
@@ -14,6 +16,27 @@
 #include "output_path.h"
 //
 //-------------------------------------------------------------------------------------------------
+
+
+// Numerical failures must reach the caller before they contaminate history.
+static double CheckedGmresNorm(Wvector& value, long n, const char* stage)
+{
+    const double result=vector_norm2(value,n);
+    if(!std::isfinite(result))
+        throw std::runtime_error(std::string("Non-finite GMRES norm: ")+stage);
+    return result;
+}
+static void CheckCurrentMatrixFinite(const CCSRMat& matrix)
+{
+    for(long row=0;row<matrix.n;++row)
+        for(int p=matrix.row_ptr[row];p<matrix.row_ptr[row+1];++p)
+            for(int k=0;k<9;++k)
+                if(!std::isfinite(matrix.value[9*p+k])) {
+                    char message[256];
+                    sprintf_s(message,"Non-finite current matrix block: row=%ld column=%d component=%d",row,matrix.col_index[p],k);
+                    throw std::runtime_error(message);
+                }
+}
 
 static const char* GMRES_CCSR_CACHE_PATH = "output\\gmres_ccsr_cache.bin";
 static const int GMRES_CCSR_CACHE_VERSION = 2;
@@ -137,6 +160,10 @@ static void WriteOldRhsBreakdownCsv(const char* solver,
 		{
 			long p = ele * 3 + k;
 			double residual = ax.b[p] - total.b[p];
+            if(!_finite(residual) || !_finite(solution.b[p])) {
+                fclose(fp);
+                throw std::runtime_error("Non-finite solution/residual in RHS diagnostic");
+            }
 			fprintf(fp, "%s,%ld,%ld,%d,%d,%d,%.17g,%.17g,%.17g,%c,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
 				solver,
 				step,
@@ -324,7 +351,7 @@ static GmresCcsrCacheHeader GmresMakeCacheHeader(long NodeNum, long EleNum, long
 	header.Rou = DSquareElement::m_DMat.Rou;
 	header.gap = DSquareElement::m_gap;
     header.wavefrontEnabled = DBEMPolicy::wavefrontIntegration ? 1 : 0;
-    header.integrationRevision = 2;
+    header.integrationRevision = 3;
     const int quadrature[6] = {NUMPW,GAUSSPOINTPW,SINNUMPW,SINGAUSSPOINTPW,GAUSSPOINT,SINGAUSSPOINT};
     for (int i=0;i<6;++i) header.quadrature[i]=quadrature[i];
     header.waveRelativeTolerance=DBEM_WAVEFRONT_REL_TOL;
@@ -645,6 +672,7 @@ int GMRESPreConditioner(DSquareElement* m_DSE, PreConditioner& m_Pre, long Count
 
 int GMRESPreConditioner(DSquareElement* m_DSE, PreConditioner& m_Pre, long Count_PT, long MaxLeafPointCount, CCSRMat& M)
 {
+    CheckCurrentMatrixFinite(M);
 	Cube GlobalBox;
 	Tree* m_treePre;
 	PointerOfLeaf p_leafPre;
@@ -939,7 +967,7 @@ int gmres(DSquareElement* m_DSE, Wmatrix& A, Wvector& b, PreConditioner& m_Pre, 
 	Wvector f(restart);                 //y = R\f => x = x0 + V*y
 	Wmatrix W(n, restart);               //W = V*inv(R)
 
-	n2b = vector_norm2(b, n);
+	n2b = CheckedGmresNorm(b, n, "right-hand side");
 	if (n2b == 0.0)
 	{
 		x = 0.0;
@@ -966,7 +994,7 @@ int gmres(DSquareElement* m_DSE, Wmatrix& A, Wvector& b, PreConditioner& m_Pre, 
 		r[i] = b[i] - r[i];
 	}//end for ii
 
-	normr = vector_norm2(r, n);
+	normr = CheckedGmresNorm(r, n, "initial/restarted residual");
 	if (normr <= tolb)
 	{
 		flag = 0;
@@ -986,7 +1014,8 @@ int gmres(DSquareElement* m_DSE, Wmatrix& A, Wvector& b, PreConditioner& m_Pre, 
 		GMRES_M_X(m_Pre, r, vh);
 
 		j = 0;
-		h[1] = vector_norm2(vh, n);
+		h[1] = CheckedGmresNorm(vh, n, "preconditioned residual");
+        if(!(h[1]>0)) throw std::runtime_error("Zero preconditioned residual for a nonconverged system");
 		for (j = 1; j <= n; j++)  //V(:,1) = vh / h(1)
 			V(j, 1) = vh[j] / h[1];
 
@@ -1014,7 +1043,7 @@ int gmres(DSquareElement* m_DSE, Wmatrix& A, Wvector& b, PreConditioner& m_Pre, 
 					u[l] -= h[k] * V(l, k);
 			}
 
-			h[j + 1] = vector_norm2(u, n);
+			h[j + 1] = CheckedGmresNorm(u, n, "Arnoldi vector");
 
 			if (h[j + 1] <= 1.0e-12)
 			{
@@ -1104,7 +1133,7 @@ int gmres(DSquareElement* m_DSE, Wmatrix& A, Wvector& b, PreConditioner& m_Pre, 
 			for (k = 1; k <= n; k++)
 				vh[k] = b[k] - vh[k];
 
-			normr = vector_norm2(vh, n);
+			normr = CheckedGmresNorm(vh, n, "true residual");
 
 			if (normr <= tolb)
 			{
@@ -1173,7 +1202,7 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 	Wvector f(restart);                 //y = R\f => x = x0 + V*y
 	Wmatrix W(n, restart);               //W = V*inv(R)
 
-	n2b = vector_norm2(b, n);
+	n2b = CheckedGmresNorm(b, n, "right-hand side");
 	if (n2b == 0.0)
 	{
 		x = 0.0;
@@ -1200,7 +1229,7 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 		r[i] = b[i] - r[i];
 	}//end for ii
 
-	normr = vector_norm2(r, n);
+	normr = CheckedGmresNorm(r, n, "initial/restarted residual");
 	if (normr <= tolb)
 	{
 		flag = 0;
@@ -1220,7 +1249,8 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 		GMRES_M_X(m_Pre, r, vh);
 
 		j = 0;
-		h[1] = vector_norm2(vh, n);
+		h[1] = CheckedGmresNorm(vh, n, "preconditioned residual");
+        if(!(h[1]>0)) throw std::runtime_error("Zero preconditioned residual for a nonconverged system");
 		for (j = 1; j <= n; j++)  //V(:,1) = vh / h(1)
 			V(j, 1) = vh[j] / h[1];
 
@@ -1249,7 +1279,7 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 					u[l] -= h[k] * V(l, k);
 			}
 
-			h[j + 1] = vector_norm2(u, n);
+			h[j + 1] = CheckedGmresNorm(u, n, "Arnoldi vector");
 
 			if (h[j + 1] <= 1.0e-12)
 			{
@@ -1340,7 +1370,7 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 			for (k = 1; k <= n; k++)
 				vh[k] = b[k] - vh[k];
 
-			normr = vector_norm2(vh, n);
+			normr = CheckedGmresNorm(vh, n, "true residual");
 
 			if (normr <= tolb)
 			{
@@ -1411,7 +1441,7 @@ int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, 
 	Wmatrix W(n, restart);               //W = V*inv(R)
 
 
-	n2b = vector_norm2(b, n);
+	n2b = CheckedGmresNorm(b, n, "right-hand side");
 	if (n2b == 0.0)
 	{
 		x = 0.0;
@@ -1438,7 +1468,7 @@ int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, 
 		r[i] = b[i] - r[i];
 	}//end for ii
 
-	normr = vector_norm2(r, n);
+	normr = CheckedGmresNorm(r, n, "initial/restarted residual");
 	if (normr <= tolb)
 	{
 		flag = 0;
@@ -1458,7 +1488,8 @@ int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, 
 		GMRES_M_X(m_Pre, r, vh);
 
 		j = 0;
-		h[1] = vector_norm2(vh, n);
+		h[1] = CheckedGmresNorm(vh, n, "preconditioned residual");
+        if(!(h[1]>0)) throw std::runtime_error("Zero preconditioned residual for a nonconverged system");
 		for (j = 1; j <= n; j++)  //V(:,1) = vh / h(1)
 			V(j, 1) = vh[j] / h[1];
 
@@ -1487,7 +1518,7 @@ int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, 
 					u[l] -= h[k] * V(l, k);
 			}
 
-			h[j + 1] = vector_norm2(u, n);
+			h[j + 1] = CheckedGmresNorm(u, n, "Arnoldi vector");
 
 			if (h[j + 1] <= 1.0e-12)
 			{
@@ -1578,7 +1609,7 @@ int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, 
 			for (k = 1; k <= n; k++)
 				vh[k] = b[k] - vh[k];
 
-			normr = vector_norm2(vh, n);
+			normr = CheckedGmresNorm(vh, n, "true residual");
 
 			if (normr <= tolb)
 			{

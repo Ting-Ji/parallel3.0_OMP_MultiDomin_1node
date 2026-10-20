@@ -301,6 +301,10 @@ static void WriteRhsBreakdownCsv(const char* solver,
 		{
 			long p = node * 3 + k;
 			double residual = ax.b[p] - total.b[p];
+            if(!_finite(residual) || !_finite(solution.b[p])) {
+                fclose(fp);
+                throw std::runtime_error("Non-finite solution/residual in RHS diagnostic");
+            }
 			fprintf(fp, "%s,%ld,%ld,%ld,%d,%d,%d,%d,%.17g,%.17g,%.17g,%c,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
 				solver,
 				step,

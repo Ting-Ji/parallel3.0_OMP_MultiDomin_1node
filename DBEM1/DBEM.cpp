@@ -467,6 +467,13 @@ static bool WriteValidationOutputs(DSquareElement* elements,
 					long nodeId = elements[ele].m_nodeID[0];
 					long base = nodeId * 3;
 					Point& pt = elements[ele].m_nodelist[nodeId];
+                    for(int component=0;component<3;++component) {
+                        if(!_finite(bdValue[step].lu.b[base+component]) || !_finite(bdValue[step].lt.b[base+component])) {
+                            fclose(state);remove(temporaryPath.c_str());
+                            fprintf(stderr,"Cannot write non-finite state: step=%ld element=%ld component=%d\n",step,ele,component);
+                            return false;
+                        }
+                    }
 					fprintf(state,
 						"%ld,%ld,%ld,%d,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g\n",
 						step,

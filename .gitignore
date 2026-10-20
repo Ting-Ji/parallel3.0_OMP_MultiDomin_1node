@@ -75,3 +75,12 @@ DBEM1/run_capture*.txt
 # Keep the wavefront regressions visible after the project test-directory rule.
 !/DBEM1/tests/
 /DBEM1/tests
+
+# Retained-entry singular initialization and finite-value regression tests
+!/DBEM1/tests/
+!/DBEM1/tests/singular_initialization_race.py
+!/DBEM1/tests/solver_nonfinite_checks.py
+!/DBEM1/tests/e08_short_threads.py
+!/DBEM1/tests/e08_new_framework_threads.py
+!/DBEM1/tests/e08_first_step_independent.py
+!/DBEM1/tests/legacy_single_completion.py

@@ -20,15 +20,15 @@ double DSquareElement::m_gap = 0.5;
 
 GaussNumeMatrix DSquareElement::m_gnm;
 
-double DSquareElement::m_OnEleN[8][4][SINGAUSSPOINT2][3];
-double DSquareElement::m_OnEleJ[8][4][SINGAUSSPOINT2];
-double DSquareElement::m_OnEleR[8][4][SINGAUSSPOINT2][4];
+thread_local double DSquareElement::m_OnEleN[8][4][SINGAUSSPOINT2][3];
+thread_local double DSquareElement::m_OnEleJ[8][4][SINGAUSSPOINT2];
+thread_local double DSquareElement::m_OnEleR[8][4][SINGAUSSPOINT2][4];
 
 double DSquareElement::m_AssistUij[8][9];
 double DSquareElement::m_AssistTij[8][9];
 double DSquareElement::m_AssistCoef[8][9];
 
-double DSquareElement::m_StaticTij[8][8][9];
+thread_local double DSquareElement::m_StaticTij[8][8][9];
 
 Counter DSquareElement::m_counter;
 

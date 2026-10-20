@@ -222,15 +222,16 @@ public:
 	
 
 	// 用于单元内奇异积分的辅助静态变量
-	static double m_OnEleN[8][4][SINGAUSSPOINT2][3];
-	static double m_OnEleJ[8][4][SINGAUSSPOINT2];
-	static double m_OnEleR[8][4][SINGAUSSPOINT2][4];
+	// Writable singular-integration scratch; each initialization worker needs its own copy.
+	static thread_local double m_OnEleN[8][4][SINGAUSSPOINT2][3];
+	static thread_local double m_OnEleJ[8][4][SINGAUSSPOINT2];
+	static thread_local double m_OnEleR[8][4][SINGAUSSPOINT2][4];
 
 	static double m_AssistUij[8][9];
 	static double m_AssistTij[8][9];
 	static double m_AssistCoef[8][9];
 
-	static double m_StaticTij[8][8][9];
+	static thread_local double m_StaticTij[8][8][9];
 
 	// 计时静态变量
     static Counter m_counter;

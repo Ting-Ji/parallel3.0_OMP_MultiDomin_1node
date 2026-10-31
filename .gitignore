@@ -57,3 +57,17 @@ DBEM1/1
 DBEM1/run_capture*.txt
 *.before_1node_plan
 /DBEM1/tests
+
+# Keep only the mainline source directory visible at the repository root.
+# Research folders (including wavefront_topic/ and gpu/), papers, tests,
+# temporary work and generated runs stay local. Existing tracked files are
+# unaffected by ignore rules.
+/*/
+!/DBEM1/
+
+# Mainline files live directly in this directory; ignore generated or
+# experimental subdirectories, including any added in future work.
+/DBEM1/*/
+
+# Local agent instructions are workspace configuration, not project sources.
+/AGENTS.md

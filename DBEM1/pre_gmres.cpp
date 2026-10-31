@@ -1,5 +1,6 @@
 ﻿#include "solver_policy.h"
 #include "pre_gmres.h"
+#include "gpu_gmres_bridge.h"
 #include "stdio.h"
 #include "math.h"
 #include "Counter.h"
@@ -1353,6 +1354,8 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 
 int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, long int restart, double tol, long int maxit, Wvector& x0, Wvector& x, int& flag, int* iter)
 {
+    if (DbemGpu::Requested())
+        return DbemGpu::Solve(A, m_Pre, b, x0, x, restart, tol, maxit, flag, iter);
 //A:             ϵ
 //b:             
 //restart:       ѭ

@@ -2,6 +2,7 @@
 #include "multidomain.h"
 #include "Gauss_solver.h"
 #include "pre_gmres.h"
+#include "gpu_gmres_bridge.h"
 #include "output_path.h"
 #include "PthreadCCSR.h"
 
@@ -4663,6 +4664,7 @@ try
 	{
 		return -1;
 	}
+    DbemGpu::Scope gpuGmresScope(A, pre); // Reuse resident A/P across time steps.
 	if (DBEMPolicy::solveDiagnostics && model.DomainCount() == 1)
 		PrintPreconditionerSelfCheck(A, pre);
 

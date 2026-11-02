@@ -3623,6 +3623,21 @@ public:
         return true;
     }
 
+    size_t WorkerCount() const { return threads.empty() ? 1 : threads.size(); }
+
+    bool Submit(void* data, void (*callback)(void*, size_t))
+    {
+        if (threads.empty()) { callback(data, 0); return true; }
+        RequireThreadSuccess(pthread_mutex_lock(&mutex), "RHS submit lock");
+        tasks = data; execute = callback; completed = 0; ++generation;
+        RequireThreadSuccess(pthread_cond_broadcast(&workReady), "RHS submit broadcast");
+        while (completed != threads.size())
+            RequireThreadSuccess(pthread_cond_wait(&allDone, &mutex), "RHS submit wait");
+        tasks = NULL;
+        RequireThreadSuccess(pthread_mutex_unlock(&mutex), "RHS submit unlock");
+        return true;
+    }
+
     void Close()
     {
         if (!threads.empty())
@@ -3668,6 +3683,8 @@ static void BuildConvolutionVector(const std::vector<MultiDomainState>& states,
 		}
 	}
 }
+
+#include "rhs_cpu_impl.h"
 
 static void PrintInterfaceError(const GlobalDofMap& dofMap,
 	const MultiDomainModel& model,
@@ -4690,7 +4707,8 @@ try
 	std::vector<std::vector<MultiDomainHistorySpMVTask<CCSRMat> > > historyTTasks((size_t)MaxN + 1);
 	std::vector<std::vector<MultiDomainHistorySpMVTask<SymCCSRMat> > > historyGTasks((size_t)MaxN + 1);
 	std::vector<std::vector<MultiDomainHistorySpMVTask<CCSRMat> > > historyGFullTasks((size_t)MaxN + 1);
-	for (long lag = 1; lag <= MaxN; ++lag)
+	const bool rhsParallel = RhsParallelSelected();
+	if (!rhsParallel) for (long lag = 1; lag <= MaxN; ++lag)
 	{
 		PrepareMultiDomainHistorySpMV(MTS[lag], convU, temp, historyTTasks[(size_t)lag]);
 		if (MGSUseSym[lag])
@@ -4702,6 +4720,27 @@ try
 	MultiDomainHistoryThreadPool historyPool;
 	if (!historyPool.Initialize(thread_num)) return -1;
 
+	std::unique_ptr<RhsCpuWorkspace> rhsWorkspace;
+	if (rhsParallel)
+	{
+		const double rhsSetupClock = DBEMWallTime();
+		rhsWorkspace.reset(new RhsCpuWorkspace(historyPool.WorkerCount()));
+		RhsCpuWorkspace& w = *rhsWorkspace;
+		w.Prepare(dofMap, model, elements, bd[0].lu.n, KnownM);
+		w.states = &states; w.mts = MTS; w.mgs = MGS; w.mgsFull = MGSFull; w.symmetric = MGSUseSym;
+		w.rhs = &rhs; w.convU = &convU; w.convT = &convT; w.temp = &temp; w.x0 = &x0; w.x = &x;
+		w.diagKnown = &diagKnown; w.diagG = &diagHistoryG; w.diagT = &diagHistoryT;
+		w.diagnostics = kMultiDomainSolveDiagnostics; w.maxLag = MaxN;
+		for (long lag = 1; lag <= MaxN; ++lag)
+		{
+			PrepareRhsSpMVTasks(MTS[lag], convU, temp, historyTTasks[(size_t)lag], w.count);
+			if (MGSUseSym[lag]) PrepareRhsSpMVTasks(MGS[lag], convT, temp, historyGTasks[(size_t)lag], w.count);
+			else PrepareRhsSpMVTasks(MGSFull[lag], convT, temp, historyGFullTasks[(size_t)lag], w.count);
+		}
+		w.tTasks = &historyTTasks; w.gTasks = &historyGTasks; w.gFullTasks = &historyGFullTasks;
+		w.setupSeconds = DBEMWallTime() - rhsSetupClock;
+		DBEMWriteTiming("rhs.cpu.workspace_setup", w.setupSeconds);
+	}
 	DBEMWriteTiming("multidomain.state_init", DBEMWallTime() - stateClock);
 	GmresCpuWorkspace gmresWorkspace;
 	double gmresTime = 0.0;
@@ -4714,6 +4753,24 @@ try
 	{
 		const double rhsClock = DBEMWallTime();
 		printf("MultiDomain GMRES Solver: Step %ld.\n", step);
+		if (rhsParallel)
+		{
+			RhsCpuWorkspace& w = *rhsWorkspace;
+			w.step = step; w.known = &states[(size_t)step].globalKnown; w.boundary = &bd[step].lu;
+			const double taskStart = w.Clock();
+			if (!historyPool.Submit(&w, RhsCpuWorkspace::Execute)) return -1;
+			w.Finish();
+			if (w.profile)
+			{
+				const double wall = DBEMWallTime() - taskStart;
+				double maximumWorker = 0.0;
+				for (size_t id = 0; id < w.count; ++id) maximumWorker = (std::max)(maximumWorker, w.stats[id].lastTaskWall);
+				DBEMWriteTiming("rhs.cpu.task_wall", wall, step);
+				DBEMWriteTiming("rhs.cpu.dispatch_completion", (std::max)(0.0, wall - maximumWorker), step);
+			}
+		}
+		else
+		{
 		BuildKnownInputVectorFromBoundary(dofMap, model, elements, bd[step], states[(size_t)step].globalKnown);
 		SparseMul(KnownM, states[(size_t)step].globalKnown, rhs);
 		if (kMultiDomainSolveDiagnostics)
@@ -4745,12 +4802,15 @@ try
 				AddVectorInPlace(diagHistoryT, temp, -1.0);
 		}
 
+		}
 		if (kMultiDomainSolveDiagnostics)
 			PrintRhsSummary(step, diagKnown, diagHistoryG, diagHistoryT, rhs, error);
+        if (!rhsParallel) {
         for (long i = 1; i <= rhs.n; ++i)
             if (!IsFiniteScalar(rhs[i])) InvalidAssemblyValue("non-finite RHS before GMRES", i, step);
 		x0 = 0.0;
 		x = 0.0;
+        }
 		int flag = 1;
 		int iter[2] = { 0, 0 };
 		DBEMWriteTiming("multidomain.rhs", DBEMWallTime() - rhsClock, step);
@@ -4789,6 +4849,7 @@ try
 	}
 
 	historyPool.Close();
+	if (rhsWorkspace) rhsWorkspace->WriteProfile();
 
 	double avgMTSBlocks = MaxN > 0 ? (double)totalHistoryTBlocks / (double)MaxN : 0.0;
 	double avgMGSBlocks = MaxN > 0 ? (double)totalHistoryGBlocks / (double)MaxN : 0.0;

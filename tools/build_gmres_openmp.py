@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/gmres_openmp/build")
+    parser.add_argument("--rhs-tests", action="store_true", help="also link the RHS parallel test harness")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -49,6 +50,8 @@ def main():
     run("test_globals_build", common + ["/Dmain=dbem_production_entry", "/c", str(ROOT / "DBEM1/DBEM.cpp"), "/Fo:test_globals.obj"])
     objects = [p.stem + ".obj" for p in sources if p.stem.lower() != "dbem"] + ["test_globals.obj"]
     run("test_build", common + [str(ROOT / "tests/gmres_openmp_test.cpp")] + objects + ["/Fe:gmres_openmp_test.exe"] + link)
+    if args.rhs_tests:
+        run("rhs_test_build", common + [str(ROOT / "tests/rhs_parallel_test.cpp")] + objects + ["/Fe:rhs_parallel_test.exe"] + link)
     for name in ["gaussposition", "gaussweight"]:
         shutil.copy2(ROOT / "DBEM1" / name, out / name)
     dll = ROOT / "lib/x64/pthreadVC2.dll"

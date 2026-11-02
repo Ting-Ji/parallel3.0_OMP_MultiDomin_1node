@@ -217,6 +217,7 @@ def main():
                 parallel = pairs[0]["omp"]["stage_timings"][stage]
                 performance[stage] = {"legacy_s": serial,"omp_s": parallel,"samples_per_backend": 1,"speedup": serial/parallel}
             summary["performance"][case] = performance
+            save(args.output / (args.suite + ".json"), summary)
     summary["passed"] = True
     if args.suite == "large-short":
         summary["performance_gate_passed"] = all(p["multidomain.gmres"]["speedup"] >= 1.5 for p in summary["performance"].values())

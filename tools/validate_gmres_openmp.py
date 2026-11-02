@@ -1,7 +1,7 @@
 """Sequential, resumable 40-thread physical validation of legacy/OMP GMRES.
 
 Run with Windows Python. All inputs/results are isolated under --output.
-Suites are gated: small -> large-short (3 alternating pairs/case) -> large-full.
+Suites are gated: small -> large-short (one pair/case) -> large-full.
 """
 import argparse
 import csv
@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 import re
 import shutil
-import statistics
 import subprocess
 import time
 
@@ -194,8 +193,9 @@ def main():
             if not prior["passed"] or prior["exe_sha256"] != sha(args.exe):
                 raise RuntimeError("Previous numerical gate not passed for this executable")
         cases = [(f"cube_md{n}_x{n//100}_face16", 1000 if args.suite == "large-full" else 100) for n in ([1000] if args.suite in ["large-full","diagnostic"] else [1000,2000])]
-        repeats = 3 if args.suite == "large-short" else 1
-    summary = {"suite": args.suite, "exe_sha256": sha(args.exe), "passed": False, "comparisons": [], "performance": {}}
+        repeats = 1
+    summary = {"suite": args.suite, "exe_sha256": sha(args.exe), "sampling": "single_run_per_backend",
+               "passed": False, "comparisons": [], "performance": {}}
     for case, steps in cases:
         pairs = []
         for repeat in range(repeats):
@@ -213,9 +213,9 @@ def main():
         if pairs:
             performance = {}
             for stage in ["multidomain.gmres","run.solve","run.total"]:
-                serial = statistics.median(p["legacy"]["stage_timings"][stage] for p in pairs)
-                parallel = statistics.median(p["omp"]["stage_timings"][stage] for p in pairs)
-                performance[stage] = {"legacy_median_s": serial,"omp_median_s": parallel,"speedup": serial/parallel}
+                serial = pairs[0]["legacy"]["stage_timings"][stage]
+                parallel = pairs[0]["omp"]["stage_timings"][stage]
+                performance[stage] = {"legacy_s": serial,"omp_s": parallel,"samples_per_backend": 1,"speedup": serial/parallel}
             summary["performance"][case] = performance
     summary["passed"] = True
     if args.suite == "large-short":

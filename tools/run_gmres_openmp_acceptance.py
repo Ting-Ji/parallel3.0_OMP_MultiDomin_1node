@@ -18,6 +18,7 @@ from validate_gmres_openmp import ROOT, save, sha
 def report(root, state):
     lines = ["# GMRES OpenMP acceptance", "", f"Status: **{state['status']}**", "",
              "All solver runs use 40 threads and run sequentially. Default CPU mode remains legacy.", "",
+             "One legacy/OMP pair per model and step count; no averages or medians. Existing repeat 0 is reused.", "",
              f"Executable SHA256: `{state['exe_sha256']}`", "",
              "| Suite / case | Numerical gate | GMRES speedup | Compute speedup | Total speedup |",
              "|---|---|---:|---:|---:|"]
@@ -44,11 +45,13 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/gmres_openmp/acceptance")
     parser.add_argument("--exe", type=Path, default=ROOT / "tmp/gmres_openmp/build/DBEM1_openmp.exe")
     parser.add_argument("--wait-small-pid", type=int)
+    parser.add_argument("--with-diagnostic", action="store_true", help="explicitly request an additional profiling run (off by default)")
     args = parser.parse_args()
     args.output = args.output.resolve(); args.exe = args.exe.resolve()
     args.output.mkdir(parents=True, exist_ok=True)
     state = {"status": "running", "started_utc": datetime.now(timezone.utc).isoformat(),
-             "exe_sha256": sha(args.exe), "threads": 40, "current_suite": "small", "completed_suites": []}
+             "exe_sha256": sha(args.exe), "threads": 40, "sampling": "single_run_per_backend",
+             "queue_pid": psutil.Process().pid, "current_suite": "small", "completed_suites": []}
 
     def update():
         save(args.output / "acceptance_queue.json", state)
@@ -74,9 +77,21 @@ def main():
                     pass
             gate("small")
             state["completed_suites"].append("small")
-        for suite in (["large-short", "large-full", "diagnostic"] if args.wait_small_pid else ["small", "large-short", "large-full", "diagnostic"]):
+        suites = ["large-short", "large-full"] if args.wait_small_pid else ["small", "large-short", "large-full"]
+        if args.with_diagnostic:
+            suites.append("diagnostic")
+        for suite in suites:
             state["current_suite"] = suite
             update()
+            prior_file = args.output / (suite + ".json")
+            if suite != "diagnostic" and prior_file.exists():
+                prior = json.loads(prior_file.read_text(encoding="utf-8"))
+                if (prior["exe_sha256"] == state["exe_sha256"] and prior["passed"]
+                        and (suite == "small" or prior.get("sampling") == "single_run_per_backend")):
+                    gate(suite)
+                    state["completed_suites"].append(suite)
+                    update()
+                    continue
             command = [sys.executable, str(ROOT / "tools/validate_gmres_openmp.py"), "--suite", suite,
                        "--exe", str(args.exe), "--output", str(args.output)]
             with (args.output / (suite + "_queue.log")).open("ab") as log:

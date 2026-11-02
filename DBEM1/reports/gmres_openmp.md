@@ -62,7 +62,8 @@ WIN_PY=/mnt/c/Users/33435/AppData/Local/Programs/Python/Python312/python.exe
 "$WIN_PY" tools/validate_gmres_openmp.py --suite small
 "$WIN_PY" tools/validate_gmres_openmp.py --suite large-short
 "$WIN_PY" tools/validate_gmres_openmp.py --suite large-full
-"$WIN_PY" tools/validate_gmres_openmp.py --suite diagnostic
+# Optional only if an additional profiling run is explicitly wanted:
+# "$WIN_PY" tools/validate_gmres_openmp.py --suite diagnostic
 ```
 
 The scripts run all solver computations with the card and environment set to 40
@@ -74,8 +75,13 @@ uses the same cube materials as the original cases; TSV global material alone is
 changed to copper E=110, nu=0.34, rho=8.96, with domain materials retained.
 
 The small gate covers 24-step one-/two-domain rods and 1000-step TSV 01/04/09.
-The short large gate covers 1000-/2000-domain cubes for 100 steps, three alternating
-legacy/OMP pairs each. The final gate covers the 1000-domain cube for 1000 steps.
+The short large gate covers 1000-/2000-domain cubes for 100 steps, one legacy/OMP
+pair each. The final gate covers the 1000-domain cube for 1000 steps, also one pair.
+Per the user's updated instruction, completed repeat 0 is reused. Additional
+repetitions already completed are retained as evidence but excluded from the
+formal single-run figures. An in-progress redundant repetition was intentionally
+stopped; this is not a numerical failure. The queue does not run an extra profiling
+case unless `--with-diagnostic` is explicitly supplied.
 State comparison is streamed in chunks; row identity, finite fields, per-group
 relative L2 <=1e-6 and maximum difference <=1e-5 of the baseline group peak are
 required for both displacement and traction (zero floor 1e-30). Each step must
@@ -84,8 +90,8 @@ cube results remain a separate issue from parallel/legacy consistency.
 
 The serial reference includes its existing 40-thread preconditioner application.
 Speedups are therefore relative to the existing partially parallel implementation,
-not a single-thread baseline. The runner reports medians for GMRES, run.solve
-and run.total plus sampled peak resident memory and iteration changes. No thread
+not a single-thread baseline. The runner reports single-run times for GMRES,
+run.solve and run.total plus sampled peak resident memory and iteration changes. No thread
 sweep is performed. A 1.5x GMRES speedup on **both** large cases is required before
 considering default automatic activation.
 

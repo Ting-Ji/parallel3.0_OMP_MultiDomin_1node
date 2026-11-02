@@ -16,9 +16,13 @@ One OpenMP team is used per solve. CCSR row ranges are balanced by block-nonzero
 count plus row count. Preconditioner application shares the team when output
 indices are unique; overlapping outputs retain sequential accumulation. No
 nested OpenMP region or additional runnable history-pool work is introduced.
-Dot products and squared norms use fixed 1024-element blocks and an ordered
-final sum. This is repeatable for identical inputs/builds, but changes rounding
-relative to the original serial sum. Existing small Hessenberg/Givens work is
+For at least 65,536 scalar unknowns, dot products and squared norms use fixed
+1024-element blocks and an ordered final sum. Smaller forced-OMP systems retain
+the original serial summation order: TSV 04's long-time traction failed the
+strict field gate with changed reduction order despite passing every residual
+test (the initial evidence is retained). Large-system fixed-block reduction is
+repeatable for identical inputs/builds, but changes rounding relative to the
+original serial sum. Existing small Hessenberg/Givens work is
 performed by one thread. No fast-math or reduced precision is used.
 
 `GmresCpuWorkspace` is explicitly owned by the multidomain solve session. V is
@@ -84,3 +88,39 @@ not a single-thread baseline. The runner reports medians for GMRES, run.solve
 and run.total plus sampled peak resident memory and iteration changes. No thread
 sweep is performed. A 1.5x GMRES speedup on **both** large cases is required before
 considering default automatic activation.
+
+## Initial validation and compatibility adjustment (2026-11-02)
+
+The first build passed the 40-thread operator/solver tests, both 24-step rods,
+and the full 1000-step TSV 01 comparison. TSV 04 passed every independent linear
+residual check but failed the full-history traction gate: relative L2 7.0112e-5,
+maximum absolute difference 5.5795e-7. Displacement relative L2 was 3.6150e-7.
+The two cards were identical (SHA256
+`1698256c7e901a2bdefa673039214291ecad8d11fef2b41e7f3e907ff5035d6f`),
+with global copper E=110, nu=0.34, rho=8.96 and 40 threads. The printed c1/c2 in
+DBEM.cpp uses materialContext.Get(0), the first silicon domain, not the global
+card material. The copper global time-step path was retained.
+
+The first differences were at roundoff scale in step 1, growing late in the
+history. The small-system serial summation compatibility path was added; large
+systems retain the planned parallel fixed-block reductions. The rebuilt tests
+also exercise 65,541 unknowns, explicitly covering the fixed-block path. A fresh
+100-step TSV 04 legacy/OMP pair then produced exactly equal displacement and
+traction fields, with equal iteration totals and passing independent residuals.
+This short check does not replace the full 1000-step gate.
+
+Initial failed evidence is retained in `tmp/gmres_openmp/acceptance/`; the
+compatibility check is in `tmp/gmres_openmp/quick_v2/`. The new complete acceptance
+queue uses `tmp/gmres_openmp/acceptance_v2/` and the rebuilt solver in
+`tmp/gmres_openmp/build_v2/`. Its live report is `acceptance_report.md` and its
+machine-readable status is `acceptance_queue.json`. Run it from Windows Python:
+
+```sh
+"$WIN_PY" tools/run_gmres_openmp_acceptance.py \
+  --exe tmp/gmres_openmp/build_v2/DBEM1_openmp.exe \
+  --output tmp/gmres_openmp/acceptance_v2
+```
+
+The queue stops on any failed gate, retains all evidence and never changes the
+default backend automatically. Default activation requires review after all
+numerical gates and the large-case performance target have completed.

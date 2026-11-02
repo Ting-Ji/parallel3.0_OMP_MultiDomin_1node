@@ -36,8 +36,8 @@ struct Fixture {
         }
     }
 };
-static void operators(bool empty, bool overlap) {
-    Fixture f(53, empty, overlap); const int n = 3*f.blocks;
+static void operators(bool empty, bool overlap, int blocks = 53) {
+    Fixture f(blocks, empty, overlap); const int n = 3*f.blocks;
     Wvector x(n), ax(n), px(n), referenceA(n), referenceP(n);
     for (int i = 1; i <= n; ++i) x[i] = std::sin(.13*i);
     SparseMul(f.a, x, referenceA); GMRES_M_X(f.p, x, referenceP);
@@ -83,7 +83,8 @@ static void solves() {
 }
 int main() {
     thread_num = 40;
-    try { operators(false,false); operators(true,false); operators(false,true); solves();
+    try { operators(false,false); operators(true,false); operators(false,true);
+        operators(false,false,21847); solves();
         printf("PASS: GMRES operators, mappings, fixed reductions, restart, repeat, initial guesses, limit, zero, nonfinite, breakdown; threads=40\n"); return 0; }
     catch (const std::exception& e) { fprintf(stderr,"FAIL: %s\n",e.what()); return 2; }
 }

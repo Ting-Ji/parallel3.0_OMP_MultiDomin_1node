@@ -45,6 +45,18 @@ struct Team {
         }
     }
     double Dot(const double* a, const double* b) {
+        // Small long-time TSV models amplify even a changed summation order.
+        // Preserve their legacy sum; large systems use fixed parallel blocks.
+        if (w.n < 65536) {
+#pragma omp single
+            {
+                w.reduced = 0.0;
+                for (long i = 0; i < w.n; ++i) w.reduced += a[i] * b[i];
+            }
+            const double value = w.reduced;
+#pragma omp barrier
+            return value;
+        }
         const long blocks = static_cast<long>(w.partial.size());
 #pragma omp for schedule(static)
         for (long block = 0; block < blocks; ++block) {

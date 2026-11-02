@@ -4703,6 +4703,7 @@ try
 	if (!historyPool.Initialize(thread_num)) return -1;
 
 	DBEMWriteTiming("multidomain.state_init", DBEMWallTime() - stateClock);
+	GmresCpuWorkspace gmresWorkspace;
 	double gmresTime = 0.0;
 	long totalIter0 = 0;
 	long totalIter1 = 0;
@@ -4754,7 +4755,7 @@ try
 		int iter[2] = { 0, 0 };
 		DBEMWriteTiming("multidomain.rhs", DBEMWallTime() - rhsClock, step);
 		double gmresClock = DBEMWallTime();
-		gmres(elements, A, rhs, pre, iterations, error, 1, x0, x, flag, iter);
+		gmres(elements, A, rhs, pre, iterations, error, 1, x0, x, flag, iter, gmresWorkspace, step);
 		const double solveSeconds = DBEMWallTime() - gmresClock;
 		gmresTime += solveSeconds;
 		DBEMWriteTiming("multidomain.gmres", solveSeconds, step);

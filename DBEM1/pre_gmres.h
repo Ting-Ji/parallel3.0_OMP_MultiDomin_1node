@@ -116,6 +116,8 @@ public:
 
 };
 
+#include "gmres_cpu.h"
+
 int GMRESPreConditioner(DSquareElement* m_DSE,PreConditioner& m_Pre,long Count_PT,long MaxLeafPointCount,Wmatrix& A);
 int GMRESPreConditioner(DSquareElement* m_DSE, PreConditioner& m_Pre, long Count_PT, long MaxLeafPointCount, CCSRMat& MT);
 

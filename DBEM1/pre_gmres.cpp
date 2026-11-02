@@ -1351,7 +1351,7 @@ int gmres(DSquareElement* m_DSE, CSRMat& A, Wvector& b, PreConditioner& m_Pre, l
 	return 1;
 }
 
-int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, long int restart, double tol, long int maxit, Wvector& x0, Wvector& x, int& flag, int* iter)
+static int gmres_ccsr_legacy(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, long int restart, double tol, long int maxit, Wvector& x0, Wvector& x, int& flag, int* iter)
 {
 //A:             ϵ
 //b:             
@@ -1589,6 +1589,8 @@ int gmres(DSquareElement* m_DSE, CCSRMat& A, Wvector& b, PreConditioner& m_Pre, 
 	return 1;
 }
 
+
+#include "gmres_cpu_impl.h"
 
 int DynaGMRESSolver(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNum, long EleNum, long iterations, double error, long maxleafpointnum, long NStep, double MaxLength)
 {

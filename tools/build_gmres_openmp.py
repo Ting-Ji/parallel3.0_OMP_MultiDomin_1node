@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/gmres_openmp/build")
     parser.add_argument("--rhs-tests", action="store_true", help="also link the RHS parallel test harness")
+    parser.add_argument("--verify", action="store_true", help="enable the extra serial residual audit (default: disabled)")
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -32,7 +33,7 @@ def main():
             env[key.upper()] = value
     cl = shutil.which("cl.exe", path=env["PATH"])
     common = [cl, "/nologo", "/O2", "/MD", "/EHsc", "/openmp", "/std:c++14", "/fp:precise",
-              "/DDBEM_POLICY_TECPLOT_OUTPUT=0", "/DDBEM_GMRES_CPU_VERIFY=1", "/DDBEM_GMRES_CPU_TESTS=1",
+              "/DDBEM_POLICY_TECPLOT_OUTPUT=0", f"/DDBEM_GMRES_CPU_VERIFY={int(args.verify)}", "/DDBEM_GMRES_CPU_TESTS=1",
               "/I" + str(ROOT / "include"), "/I" + str(ROOT / "DBEM1")]
     ns = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
     tree = ET.parse(ROOT / "DBEM1/DBEM1.vcxproj")

@@ -1,4 +1,6 @@
-﻿#include "PthreadCCSR.h"
+﻿#include "wavefront_quadrature.h"
+#include <exception>
+#include "PthreadCCSR.h"
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -155,7 +157,7 @@ void GmresThreadDiagEnd()
 
 
 void *PthGetMatrixDynaUnknown0ij(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
 	GmresThreadDiagRecord(ID);
@@ -194,9 +196,12 @@ void *PthGetMatrixDynaUnknown0ij(void* arg)
 
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void* PthGetMatrixDynaUnknown0ijT0(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
 	long i, j, k, l, pos;
@@ -241,9 +246,12 @@ void* PthGetMatrixDynaUnknown0ijT0(void* arg)
 
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void *PthGetMatrixDynaKnown0ij(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
 	long i, j, k, l, pos;
@@ -280,9 +288,12 @@ void *PthGetMatrixDynaKnown0ij(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void *PthGetMatrixDynaT1ij(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
 	long i, j, k, l, pos, ii, jj;;
@@ -367,9 +378,12 @@ void *PthGetMatrixDynaT1ij(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void* PthGetMatrixDynaT1ijNew(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = PthTemp->targs;
 	long start = PthTemp->start;
@@ -446,9 +460,12 @@ void* PthGetMatrixDynaT1ijNew(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void *PthGetMatrixDynaT2ij(void* arg)
-{
+try {
 
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -614,9 +631,12 @@ void *PthGetMatrixDynaT2ij(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void* PthGetMatrixDynaT2ijNew(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = PthTemp->targs;
 	long start = PthTemp->start;
@@ -773,9 +793,12 @@ void* PthGetMatrixDynaT2ijNew(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void *PthGetMatrixDynaUij(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
 	long i, j, k, l, pos;
@@ -819,9 +842,12 @@ void *PthGetMatrixDynaUij(void* arg)
 
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void* PthGetMatrixDynaSymUij(void* arg)
-{
+try {
 
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = (*PthTemp).targs;
@@ -885,9 +911,12 @@ void* PthGetMatrixDynaSymUij(void* arg)
 
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 void* PthGetMatrixDynaSymUijNew(void* arg)
-{
+try {
 	PthArg* PthTemp = (PthArg*)arg;
 	long ID = PthTemp->targs;
 	long start = PthTemp->start;
@@ -921,6 +950,9 @@ void* PthGetMatrixDynaSymUijNew(void* arg)
 	}
 	return 0;
 }
+catch (const std::exception& e) { Wavefront::RecordWorkerFailure(e.what()); return nullptr; }
+catch (...) { Wavefront::RecordWorkerFailure("legacy wavefront worker failed"); return nullptr; }
+
 
 
 void* PthSparseConvertCCSR(void* arg)

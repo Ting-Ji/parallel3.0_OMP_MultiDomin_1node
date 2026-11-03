@@ -24,6 +24,7 @@
     <ClInclude Include="dimension.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="wavefront_quadrature.h"><Filter>头文件</Filter></ClInclude>
     <ClInclude Include="dsquareelement.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -80,6 +81,7 @@
     <ClCompile Include="DBEM.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="wavefront_quadrature.cpp"><Filter>源文件</Filter></ClCompile>
     <ClCompile Include="dsquareelement.cpp">
       <Filter>源文件</Filter>
     </ClCompile>

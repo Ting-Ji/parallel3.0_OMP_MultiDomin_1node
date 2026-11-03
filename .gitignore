@@ -37,6 +37,16 @@ validation_runs/
 DBEM1/reports
 tools/
 tests/
+!tools/
+tools/*
+!tools/test_wavefront_integration.py
+!tools/smoke_wavefront_integration.py
+!tools/run_wavefront_large_comparison.py
+!tools/compare_wavefront_large_analytic.py
+!tests/
+tests/*
+!tests/wavefront_quadrature_test.cpp
+!tests/wavefront_references.txt
 origin_projects/
 tmp/
 # Local MSVC runtime copies; use installed Visual Studio/MSVC instead

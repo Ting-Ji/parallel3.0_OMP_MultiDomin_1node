@@ -1,0 +1,30 @@
+{
+  "status": "complete",
+  "kernel_blocks": 210,
+  "kernel_reference_max_mixed_ratio": 2.11563e-05,
+  "gmres_regression": "pass",
+  "rhs_regression": "pass",
+  "serial_parallel_states": [
+    {
+      "case": "md_1domain_n3",
+      "max_absolute_state_difference": 0,
+      "rows": 24
+    },
+    {
+      "case": "md_2domain_n5",
+      "max_absolute_state_difference": 0,
+      "rows": 72
+    },
+    {
+      "case": "md_2domain_material_n5",
+      "max_absolute_state_difference": 0,
+      "rows": 72
+    }
+  ],
+  "legacy_single_domain": "access violation 0xC0000005 reproduced with unmodified HEAD baseline",
+  "files": {
+    "DBEM1\\wavefront_quadrature.cpp": "390619d191614fd309c0e4bae81c1784e10035a58de38d710a8b6688be28801a",
+    "DBEM1\\wavefront_quadrature.h": "57041b12abe83955034be3c7488dc757a37e013ab982f4bf8470cf85acbd0ad8",
+    "tests\\wavefront_references.txt": "2edcf5039c16ac135d54b3c1e4bb1a3905a60f9e11c61c6cb23074c26207cbaa"
+  }
+}

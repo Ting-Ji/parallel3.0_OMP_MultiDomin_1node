@@ -15,6 +15,14 @@
 
 首次部署优先阅读第 6 节；参数与输入格式见第 5 节；积分设置和简化假设见 2.8 与第 10 节。
 
+### 平面单元精确波前积分（2026-11-03）
+
+平面、直边凸四边形的普通动力学积分已接入路线 A：同时收集当前材料与时间窗的全部 P/S 分界，将三维波前转换为平面同心圆，按顶点及圆边交点方向切分，再裁剪径向区间。各子区仍调用原有 U/T1/T2 核函数，并按整个 3×3 核块控制自适应积分误差。曲面单元沿用现有积分；自单元的初始奇异项沿用初始化缓存。
+
+`DBEM1/solver_policy.h` 中 `DBEM_POLICY_WAVEFRONT_INTEGRATION` 默认设为 1；默认相对误差项为 `1e-6`，绝对尺度系数为 `1e-10`。Visual Studio 工程已经加入新增源文件，重新编译即可使用。运行日志会打印积分开关及容差。
+
+使用 Windows Python 执行 `tools/test_wavefront_integration.py` 可构建并核对 210 个独立 U/T1/T2 参考核块，以及串行、双线程入口和既有 GMRES/RHS 测试；随后执行 `tools/smoke_wavefront_integration.py` 检查多域求解路径下的单域、双域同材和双域异材短时程算例。测试构建与记录位于 `tmp/wavefront_integration/`，不覆盖已有发布版 EXE。详细接入说明见 [DBEM1/WAVEFRONT_INTEGRATION.md](DBEM1/WAVEFRONT_INTEGRATION.md)。
+
 ## 1. 项目任务与当前范围
 
 给定边界几何、材料参数、时间步数和随时间变化的位移或面力边界条件，程序完成以下计算：

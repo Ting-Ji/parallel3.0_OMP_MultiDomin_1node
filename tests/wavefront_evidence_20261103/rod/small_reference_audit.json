@@ -1,0 +1,40 @@
+{
+  "old3": {
+    "final_tip": {
+      "step": "56",
+      "x": "6",
+      "ux": "0.00024758404110832044",
+      "uy": "2.0363696907394781e-13",
+      "uz": "2.0362613081072529e-13",
+      "tx": "1",
+      "ty": "0",
+      "tz": "0"
+    },
+    "final_tip_reference": 0.000294,
+    "best_fitted_shift_and_scale_diagnostic_only": [
+      0.039383370008628654,
+      -0.0042,
+      0.8272236562696894
+    ],
+    "applied_axial_load_audited": true
+  },
+  "exact": {
+    "final_tip": {
+      "step": "56",
+      "x": "6",
+      "ux": "0.00025533988134492856",
+      "uy": "2.4216231983018724e-13",
+      "uz": "2.4462066571043831e-13",
+      "tx": "1",
+      "ty": "0",
+      "tz": "0"
+    },
+    "final_tip_reference": 0.000294,
+    "best_fitted_shift_and_scale_diagnostic_only": [
+      0.04223864958540241,
+      -0.0042,
+      0.8485925966566802
+    ],
+    "applied_axial_load_audited": true
+  }
+}

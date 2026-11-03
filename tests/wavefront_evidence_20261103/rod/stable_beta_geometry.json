@@ -1,0 +1,167 @@
+{
+  "scope": "Closed-form circle/rectangle area and finite Gauss sum only; no BEM response simulation",
+  "E": 20000,
+  "nu": 0,
+  "rho": 8,
+  "cp": 50,
+  "h": 0.3,
+  "b": 0.175,
+  "beta": 0.6,
+  "dt": 0.0021,
+  "subdivisions_per_direction": 3,
+  "gauss_per_subcell_direction": 3,
+  "rows": [
+    {
+      "m": 1,
+      "n": 2,
+      "R": 0.315,
+      "areaFraction": 0.3565302205091861,
+      "hits": 28,
+      "relativeError": -0.026588113729843335
+    },
+    {
+      "m": 2,
+      "n": 4,
+      "R": 0.525,
+      "areaFraction": 0.14128177352323304,
+      "hits": 9,
+      "relativeError": -0.3446246441876224
+    },
+    {
+      "m": 3,
+      "n": 7,
+      "R": 0.84,
+      "areaFraction": 0.23337596987110285,
+      "hits": 18,
+      "relativeError": 0.03155753728074713
+    },
+    {
+      "m": 4,
+      "n": 10,
+      "R": 1.155,
+      "areaFraction": 0.30182253770292955,
+      "hits": 27,
+      "relativeError": 0.10440173179319795
+    },
+    {
+      "m": 5,
+      "n": 12,
+      "R": 1.365,
+      "areaFraction": 0.009307910168323658,
+      "hits": 0,
+      "relativeError": -1
+    },
+    {
+      "m": 6,
+      "n": 15,
+      "R": 1.68,
+      "areaFraction": 0.0669884632769901,
+      "hits": 9,
+      "relativeError": 0.3822169977199235
+    },
+    {
+      "m": 7,
+      "n": 18,
+      "R": 1.9949999999999999,
+      "areaFraction": 0.12222485822763307,
+      "hits": 9,
+      "relativeError": -0.24244058094837778
+    },
+    {
+      "m": 8,
+      "n": 21,
+      "R": 2.31,
+      "areaFraction": 0.17602520911695166,
+      "hits": 18,
+      "relativeError": 0.3676492244971107
+    },
+    {
+      "m": 9,
+      "n": 24,
+      "R": 2.625,
+      "areaFraction": 0.22890964725110657,
+      "hits": 18,
+      "relativeError": 0.05168455603208269
+    },
+    {
+      "m": 10,
+      "n": 27,
+      "R": 2.94,
+      "areaFraction": 0.28117396121979843,
+      "hits": 18,
+      "relativeError": -0.14380143987604316
+    },
+    {
+      "m": 11,
+      "n": 30,
+      "R": 3.255,
+      "areaFraction": 0.3329988632087412,
+      "hits": 27,
+      "relativeError": 0.0010044182174348338
+    },
+    {
+      "m": 12,
+      "n": 32,
+      "R": 3.465,
+      "areaFraction": 0.03403071488073411,
+      "hits": 0,
+      "relativeError": -1
+    },
+    {
+      "m": 13,
+      "n": 35,
+      "R": 3.78,
+      "areaFraction": 0.0853631145608871,
+      "hits": 9,
+      "relativeError": 0.08469088866888644
+    },
+    {
+      "m": 14,
+      "n": 38,
+      "R": 4.095,
+      "areaFraction": 0.1364901963771797,
+      "hits": 9,
+      "relativeError": -0.3216172659264084
+    },
+    {
+      "m": 15,
+      "n": 41,
+      "R": 4.41,
+      "areaFraction": 0.18745604232719573,
+      "hits": 18,
+      "relativeError": 0.28425169843572723
+    },
+    {
+      "m": 16,
+      "n": 44,
+      "R": 4.725,
+      "areaFraction": 0.23829295353931676,
+      "hits": 18,
+      "relativeError": 0.01027217618090436
+    },
+    {
+      "m": 17,
+      "n": 47,
+      "R": 5.04,
+      "areaFraction": 0.28902514055562056,
+      "hits": 18,
+      "relativeError": -0.1670595150375438
+    },
+    {
+      "m": 18,
+      "n": 50,
+      "R": 5.3549999999999995,
+      "areaFraction": 0.3396711078266141,
+      "hits": 27,
+      "relativeError": -0.01865856220104554
+    },
+    {
+      "m": 19,
+      "n": 52,
+      "R": 5.5649999999999995,
+      "areaFraction": 0.04006109140112669,
+      "hits": 9,
+      "relativeError": 1.311284824107126
+    }
+  ]
+}

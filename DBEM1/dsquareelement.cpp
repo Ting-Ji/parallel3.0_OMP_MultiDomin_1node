@@ -5,6 +5,8 @@
 #include <float.h>
 #include "dsquareelement.h"
 #include "DBEM.h"
+#include "solver_policy.h"
+#include <cmath>
 //realization of class: DSquareElement
 
 //1.Initialization
@@ -17,15 +19,15 @@ double DSquareElement::m_gap = 0.5;
 
 GaussNumeMatrix DSquareElement::m_gnm;
 
-double DSquareElement::m_OnEleN[8][4][SINGAUSSPOINT2][3];
-double DSquareElement::m_OnEleJ[8][4][SINGAUSSPOINT2];
-double DSquareElement::m_OnEleR[8][4][SINGAUSSPOINT2][4];
+thread_local double DSquareElement::m_OnEleN[8][4][SINGAUSSPOINT2][3];
+thread_local double DSquareElement::m_OnEleJ[8][4][SINGAUSSPOINT2];
+thread_local double DSquareElement::m_OnEleR[8][4][SINGAUSSPOINT2][4];
 
 double DSquareElement::m_AssistUij[8][9];
 double DSquareElement::m_AssistTij[8][9];
 double DSquareElement::m_AssistCoef[8][9];
 
-double DSquareElement::m_StaticTij[8][8][9];
+thread_local double DSquareElement::m_StaticTij[8][8][9];
 
 Counter DSquareElement::m_counter;
 
@@ -379,6 +381,7 @@ void DSquareElement::GeoInit(Point* pointlist, long* pointID)
 	}
 
 	m_radiusPW = m_radius / NUMPW;
+	m_wavefrontGeometry = Wavefront::BuildGeometry(*this);
 
 }
 
@@ -1156,6 +1159,12 @@ int DSquareElement::JSeries(double n, double dt, double* R, double& ResJSeries)
 
 int DSquareElement::NeedCal(int type, double n, Point& o_Point)
 {
+	if (UsesPlanarWavefront()) {
+        if (!std::isfinite(n) || n < 0 || n != std::floor(n) || n >= (double)(std::numeric_limits<long>::max)())
+            throw std::runtime_error("invalid wavefront classification lag");
+        Wavefront::Vec source{{o_Point.pt[0],o_Point.pt[1],o_Point.pt[2]}};
+        return Wavefront::Classify(*this,source,(long)n,type==2,ActiveDynaMat());
+    }
 	// 该函数用来判断源点与场点单元的距离是否满足计算动态系数的条件
 	// 0: 没有收到波动影响，不参与计算
 	// 1: 部分收到波动影响，调用PW计算
@@ -1906,6 +1915,7 @@ int DSquareElement::IntTijforInfEle(Point& source,int type)
 
 int DSquareElement::IntDynaUij(Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -1955,6 +1965,7 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaUij(Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefront(Wavefront::Kernel::U,source,n,T_ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp;
@@ -2011,6 +2022,7 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt, long T_ID)
 
 int DSquareElement::IntDynaUij(Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -2051,6 +2063,7 @@ int DSquareElement::IntDynaUij(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -2099,6 +2112,7 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt)
 
 int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp=0;
@@ -2141,6 +2155,7 @@ int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, in
 
 int DSquareElement::IntDynaTij(Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT1[9], UT2[9], temp=0;
@@ -2190,6 +2205,7 @@ int DSquareElement::IntDynaTij(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaTij(Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n,-1,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT1[9], UT2[9], temp=0;
@@ -2233,6 +2249,7 @@ int DSquareElement::IntDynaTij(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaTij(int typeT, Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefront(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,T_ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp;

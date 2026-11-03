@@ -1,0 +1,12 @@
+{
+  "analytic_area_absolute_errors": {
+    "disk_inside": 6.661338147750939e-16,
+    "polygon_inside": 1.7763568394002505e-15,
+    "disjoint": 0.0,
+    "inner_tangent": 4.440892098500626e-16,
+    "through_vertices": 1.7763568394002505e-15,
+    "external_tangent": 0.0
+  },
+  "rotation_covariance_max_absolute": 3.552713678800501e-15,
+  "thin_annulus_area_relative_error": 2.19111769381122e-10
+}

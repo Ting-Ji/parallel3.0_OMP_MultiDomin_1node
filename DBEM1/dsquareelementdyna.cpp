@@ -3,6 +3,62 @@
 #include "stdio.h"
 #include "DBEM.h"
 
+#include "solver_policy.h"
+#include <stdexcept>
+#include <cmath>
+#include <limits>
+
+bool DSquareElement::UsesPlanarWavefront() const
+{
+    return DBEMPolicy::wavefrontIntegration && m_wavefrontGeometry && m_wavefrontGeometry->valid && m_wavefrontGeometry->planar;
+}
+
+int DSquareElement::IntDynaWavefrontSum(Point& source, double n, long threadId, int physicalNode)
+{
+    int first = threadId >= 0 ? IntDynaWavefront(Wavefront::Kernel::T1,source,n,threadId)
+        : IntDynaWavefrontLocal(Wavefront::Kernel::T1,source,n,physicalNode);
+    double saved[9];
+    for (int k=0;k<9;k++) saved[k]=threadId>=0?AssistTij[threadId][0][k]:m_AssistTij[0][k];
+    int second = threadId >= 0 ? IntDynaWavefront(Wavefront::Kernel::T2,source,n,threadId)
+        : IntDynaWavefrontLocal(Wavefront::Kernel::T2,source,n,physicalNode);
+    for (int k=0;k<9;k++) {
+        if (threadId>=0) AssistTij[threadId][0][k]+=saved[k];
+        else m_AssistTij[0][k]+=saved[k];
+    }
+    return first || second;
+}
+
+int DSquareElement::IntDynaWavefrontLocal(Wavefront::Kernel kernel, Point& source, double n, int physicalNode)
+{
+    if (!std::isfinite(n) || n < 0 || n != floor(n) || n >= (double)(std::numeric_limits<long>::max)())
+        throw std::runtime_error("wavefront integration requires an integer nonnegative lag");
+    if (physicalNode != -1 && physicalNode != 0)
+        throw std::runtime_error("wavefront integration supports one constant physical node per element");
+    double (*destination)[9] = kernel == Wavefront::Kernel::U ? m_AssistUij : m_AssistTij;
+    for (int row=0; row<8; ++row) for (int k=0; k<9; ++k) destination[row][k]=0;
+    Wavefront::Vec point{{source.pt[0],source.pt[1],source.pt[2]}};
+    const auto value = Wavefront::Integrate(*this,kernel,point,(long)n,ActiveDynaMat());
+    if (value.status == Wavefront::Status::Failed) throw std::runtime_error(value.message);
+    for (int k=0; k<9; ++k) destination[0][k]=value.block[k];
+    return value.status == Wavefront::Status::Outside ? 0 : 1;
+}
+
+int DSquareElement::IntDynaWavefront(Wavefront::Kernel kernel, Point& source, double n, long threadId)
+{
+    if (!std::isfinite(n) || n < 0 || n != floor(n) || n >= (double)(std::numeric_limits<long>::max)())
+        throw std::runtime_error("wavefront integration requires an integer nonnegative lag");
+    if (threadId < 0 || threadId >= thread_num)
+        throw std::runtime_error("wavefront integration received an invalid thread slot");
+    double** destination = kernel == Wavefront::Kernel::U ? AssistUij[threadId] : AssistTij[threadId];
+    for (int row=0; row<8; ++row) for (int k=0; k<9; ++k) destination[row][k]=0;
+    Wavefront::Vec point{{source.pt[0],source.pt[1],source.pt[2]}};
+    const auto value = Wavefront::Integrate(*this,kernel,point,(long)n,ActiveDynaMat());
+    if (value.status == Wavefront::Status::Failed)
+        throw std::runtime_error(value.message);
+    for (int k=0; k<9; ++k) destination[0][k]=value.block[k];
+    return value.status == Wavefront::Status::Outside ? 0 : 1;
+}
+
 //realization of class: DSquareElement dyna version
 
 
@@ -743,6 +799,7 @@ int DSquareElement::PthInElementIntStatic(long threadID)
 
 int DSquareElement::IntDynaUijPW(Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -793,6 +850,7 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefront(Wavefront::Kernel::U,source,n,T_ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp;
@@ -849,6 +907,7 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, long T_ID)
 
 int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -890,6 +949,7 @@ int DSquareElement::IntDynaUijPW(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -939,6 +999,7 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt)
 
 int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefront(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,T_ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp;
@@ -995,6 +1056,7 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, 
 
 int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT[9], temp = 0;
@@ -1038,6 +1100,7 @@ int DSquareElement::IntDynaTijPW(int typeT, Point& source, double n, double dt, 
 
 int DSquareElement::IntDynaTijPW(Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT1[9], UT2[9], temp=0;
@@ -1088,6 +1151,7 @@ int DSquareElement::IntDynaTijPW(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaTijPW(Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n,-1,ID);
 	// n = 0..M-1
 
 	double R[6], RI[4], UT1[9], UT2[9], temp=0;
@@ -1572,6 +1636,7 @@ int DSquareElement::IntDynaTijPWforInfEle(int Ttype, Point& source, double n, do
 
 int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n);
 	int Flag = NeedCal(1, n, source);
 
 	if (Flag == 0)
@@ -1587,6 +1652,7 @@ int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(Wavefront::Kernel::U,source,n,ID);
 	int Flag = NeedCal(1, n, source);
 
 	if (Flag == 0)
@@ -1602,6 +1668,7 @@ int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaUijJudge(Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefront(Wavefront::Kernel::U,source,n,T_ID);
 	int Flag = NeedCal(1, n, source);
 
 	if (Flag == 0)
@@ -1630,6 +1697,7 @@ int DSquareElement::IntDynaJudge(Point& source, double n, double dt, long T_ID)
 
 int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n);
 	int Flag = NeedCal(typeT, n, source);
 
 	if (Flag == 0)
@@ -1645,6 +1713,7 @@ int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double d
 
 int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontLocal(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,ID);
 	int Flag = NeedCal(typeT, n, source);
 
 	if (Flag == 0)
@@ -1660,6 +1729,7 @@ int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double d
 
 int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n);
 	int Flag1 = NeedCal(1, n, source);
 	int Flag2 = NeedCal(2, n, source);
 
@@ -1676,6 +1746,7 @@ int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt)
 
 int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefront(typeT == 1 ? Wavefront::Kernel::T1 : Wavefront::Kernel::T2,source,n,T_ID);
 	int Flag = NeedCal(typeT, n, source);
 
 	if (Flag == 0)
@@ -1691,6 +1762,7 @@ int DSquareElement::IntDynaTijJudge(int typeT, Point& source, double n, double d
 
 int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt, int ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n,-1,ID);
 	int Flag1 = NeedCal(1, n, source);
 	int Flag2 = NeedCal(2, n, source);
 
@@ -1707,5 +1779,6 @@ int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt, int ID)
 
 int DSquareElement::IntDynaTijJudge(Point& source, double n, double dt, long T_ID)
 {
+	if (UsesPlanarWavefront()) return IntDynaWavefrontSum(source,n,T_ID);
 	return 0;
 }

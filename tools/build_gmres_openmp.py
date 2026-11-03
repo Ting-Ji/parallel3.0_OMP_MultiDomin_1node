@@ -18,6 +18,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/gmres_openmp/build")
     parser.add_argument("--rhs-tests", action="store_true", help="also link the RHS parallel test harness")
+    parser.add_argument("--wavefront-tests", action="store_true", help="also link planar wavefront integration tests")
     parser.add_argument("--verify", action="store_true", help="enable the extra serial residual audit (default: disabled)")
     args = parser.parse_args()
     out = args.output.resolve()
@@ -53,6 +54,8 @@ def main():
     run("test_build", common + [str(ROOT / "tests/gmres_openmp_test.cpp")] + objects + ["/Fe:gmres_openmp_test.exe"] + link)
     if args.rhs_tests:
         run("rhs_test_build", common + [str(ROOT / "tests/rhs_parallel_test.cpp")] + objects + ["/Fe:rhs_parallel_test.exe"] + link)
+    if args.wavefront_tests:
+        run("wavefront_test_build", common + [str(ROOT / "tests/wavefront_quadrature_test.cpp")] + objects + ["/Fe:wavefront_quadrature_test.exe"] + link)
     for name in ["gaussposition", "gaussweight"]:
         shutil.copy2(ROOT / "DBEM1" / name, out / name)
     dll = ROOT / "lib/x64/pthreadVC2.dll"

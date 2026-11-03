@@ -1,0 +1,54 @@
+{
+  "old": [
+    {
+      "cycle": 1,
+      "computed_peak_time_ms": 3.9299999999999997,
+      "exact_peak_time_ms": 4,
+      "peak_displacement": 0.0191226498579099
+    },
+    {
+      "cycle": 2,
+      "computed_peak_time_ms": 11.76,
+      "exact_peak_time_ms": 12,
+      "peak_displacement": 0.01872498442662677
+    },
+    {
+      "cycle": 3,
+      "computed_peak_time_ms": 19.59,
+      "exact_peak_time_ms": 20,
+      "peak_displacement": 0.018420951561963023
+    },
+    {
+      "cycle": 4,
+      "computed_peak_time_ms": 27.45,
+      "exact_peak_time_ms": 28,
+      "peak_displacement": 0.018144696164725443
+    }
+  ],
+  "new": [
+    {
+      "cycle": 1,
+      "computed_peak_time_ms": 3.9,
+      "exact_peak_time_ms": 4,
+      "peak_displacement": 0.01898923953489327
+    },
+    {
+      "cycle": 2,
+      "computed_peak_time_ms": 11.73,
+      "exact_peak_time_ms": 12,
+      "peak_displacement": 0.018624975484367964
+    },
+    {
+      "cycle": 3,
+      "computed_peak_time_ms": 19.529999999999998,
+      "exact_peak_time_ms": 20,
+      "peak_displacement": 0.01834596622799408
+    },
+    {
+      "cycle": 4,
+      "computed_peak_time_ms": 27.36,
+      "exact_peak_time_ms": 28,
+      "peak_displacement": 0.018084419227289494
+    }
+  ]
+}

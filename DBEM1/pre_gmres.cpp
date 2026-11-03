@@ -1,4 +1,5 @@
-﻿#include "solver_policy.h"
+﻿#include "wavefront_quadrature.h"
+#include "solver_policy.h"
 #include "pre_gmres.h"
 #include "stdio.h"
 #include "math.h"
@@ -2753,6 +2754,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 	//GetMatrixDynaUnknown0ij(m_DSE, MT[0], NodeNum, EleNum, m_InfElePID, m_ElePID);//ݴм
 
 	//MCCSRtemp = 0.0;
@@ -2762,6 +2764,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 	MCCSRtemp.sum();
 	MTS0.initial(MCCSRtemp.m, MCCSRtemp.num);
 	MTS0.row_ptr[0] = 0;
@@ -2778,6 +2781,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 
 
 	//m_Counter.EndCount();
@@ -2799,6 +2803,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 	MCCSRtemp.sum();
 	MTS[0].initial(MCCSRtemp.n, MCCSRtemp.num);
 	MTS[0].row_ptr[0] = 0;
@@ -2810,6 +2815,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 
 	//Ԥ
 	GMRESPreConditioner(m_DSE, m_Pre, NodeNum, maxleafpointnum, MT[0]);//Сδ
@@ -2846,6 +2852,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 
 		MCCSRtemp.sum();
 		MTS[StepNum].initial(MCCSRtemp.n, MCCSRtemp.num);
@@ -2861,6 +2868,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		//
 
 
@@ -2875,6 +2883,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 
 		//SparseAddition(MCCSRtemp, MTS[StepNum], BCCSRtemp);
 
@@ -2888,6 +2897,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		MCCSRtemp.sum();
 		MTS[StepNum].Matdelete();
 		MTS[StepNum].initial(MCCSRtemp.n, MCCSRtemp.num);
@@ -2902,6 +2912,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 
 		//
 
@@ -2918,6 +2929,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		MCCSRtemp.sum();
 		MGS[StepNum].initial(MCCSRtemp.n, MCCSRtemp.num);
 		MGS[StepNum].row_ptr[0] = 0;
@@ -2931,6 +2943,7 @@ int DynaGMRESSolverNewCCSR(DSquareElement* m_DSE, BoundaryValue* bd, long NodeNu
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		//
 
 
@@ -3402,6 +3415,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 
 
 	//m_Counter.EndCount();
@@ -3423,6 +3437,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 	MCCSRtemp.sum();
 	MTS[0].initial(MCCSRtemp.m, MCCSRtemp.num);//֪
 	MTS[0].row_ptr[0] = 0;
@@ -3434,6 +3449,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 	for (i = 0; i < thread_num; i++) {
 		pthread_join(threads[i], NULL);
 	}
+	Wavefront::ThrowWorkerFailure();
 
 	//Ԥ
 	//GMRESPreConditioner(m_DSE, m_Pre, NodeNum, maxleafpointnum, MT[0]);//Сδ
@@ -3509,6 +3525,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		 
 
 		MCCSRtemp.sum();
@@ -3526,6 +3543,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		//
 
 
@@ -3544,6 +3562,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 
 		//SparseAddition(MCCSRtemp, MTS[StepNum], BCCSRtemp);
 
@@ -3563,6 +3582,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 
 		MCCSRtemp.sum();
 		MTS[StepNum].Matdelete();
@@ -3582,6 +3602,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 
 		//
 
@@ -3597,6 +3618,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		MCCSRtemp.sum();
 		MGS[StepNum].initial(MCCSRtemp.m, MCCSRtemp.num);
 		MGS[StepNum].row_ptr[0] = 0;
@@ -3612,6 +3634,7 @@ int DynaGMRESSolverNewCCSRNewPth(DSquareElement* m_DSE, BoundaryValue* bd, long 
 		for (i = 0; i < thread_num; i++) {
 			pthread_join(threads[i], NULL);
 		}
+	Wavefront::ThrowWorkerFailure();
 		//
 
 
@@ -3859,6 +3882,7 @@ GMRES_CCSR_SOLVE_READY:
 				for (i = 0; i < thread_num; i++) {
 					pthread_join(threads[i], NULL);
 				}
+	Wavefront::ThrowWorkerFailure();
 
 				Bsum += CB2;
 				if (DBEMPolicy::solveDiagnostics) diagHistoryG += CB2;
@@ -3879,6 +3903,7 @@ GMRES_CCSR_SOLVE_READY:
 				for (i = 0; i < thread_num; i++) {
 					pthread_join(threads[i], NULL);
 				}
+	Wavefront::ThrowWorkerFailure();
 				Bsum -= CB2;
 				if (DBEMPolicy::solveDiagnostics) diagHistoryT -= CB2;
 			}

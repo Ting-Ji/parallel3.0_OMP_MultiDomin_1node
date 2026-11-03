@@ -159,6 +159,7 @@
     <ClInclude Include="counter.h" />
     <ClInclude Include="DBEM.h" />
     <ClInclude Include="dimension.h" />
+    <ClInclude Include="wavefront_quadrature.h" />
     <ClInclude Include="dsquareelement.h" />
     <ClInclude Include="gaussnumematrix.h" />
     <ClInclude Include="Gauss_solver.h" />
@@ -179,6 +180,7 @@
     <ClCompile Include="aca.cpp" />
     <ClCompile Include="counter.cpp" />
     <ClCompile Include="DBEM.cpp" />
+    <ClCompile Include="wavefront_quadrature.cpp" />
     <ClCompile Include="dsquareelement.cpp" />
     <ClCompile Include="dsquareelementdyna.cpp" />
     <ClCompile Include="gaussnumematrix.cpp" />

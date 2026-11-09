@@ -30,6 +30,10 @@
 #ifndef DBEM_POLICY_WAVEFRONT_INTEGRATION
 #define DBEM_POLICY_WAVEFRONT_INTEGRATION 1
 #endif
+// Reuse geometry only; every kernel retains its own quadrature/error control.
+#ifndef DBEM_WAVEFRONT_REUSE_PARTITIONS
+#define DBEM_WAVEFRONT_REUSE_PARTITIONS 1
+#endif
 #ifndef DBEM_WAVEFRONT_REL_TOL
 #define DBEM_WAVEFRONT_REL_TOL 1e-6
 #endif

@@ -46,6 +46,13 @@ tools/*
 !tests/
 tests/*
 !tests/wavefront_quadrature_test.cpp
+!tests/wavefront_reuse_test.cpp
+!tools/build_gmres_openmp.py
+!tools/validate_wavefront_reuse.py
+!tools/smoke_wavefront_reuse.py
+!tools/audit_wavefront_reuse.py
+!tests/wavefront_reuse_evidence_20261104/
+!tests/wavefront_reuse_evidence_20261104/**
 !tests/wavefront_references.txt
 origin_projects/
 tmp/

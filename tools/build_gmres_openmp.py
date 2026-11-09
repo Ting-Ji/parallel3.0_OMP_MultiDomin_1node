@@ -19,7 +19,10 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "tmp/gmres_openmp/build")
     parser.add_argument("--rhs-tests", action="store_true", help="also link the RHS parallel test harness")
     parser.add_argument("--wavefront-tests", action="store_true", help="also link planar wavefront integration tests")
+    parser.add_argument("--reuse-tests", action="store_true", help="also link partition reuse regression tests")
     parser.add_argument("--verify", action="store_true", help="enable the extra serial residual audit (default: disabled)")
+    parser.add_argument("--dependency-root", type=Path, default=ROOT, help="root containing installed include/ and lib/x64/")
+    parser.add_argument("--reuse-partitions", choices=[0, 1], type=int, default=1)
     args = parser.parse_args()
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=True)
@@ -35,7 +38,8 @@ def main():
     cl = shutil.which("cl.exe", path=env["PATH"])
     common = [cl, "/nologo", "/O2", "/MD", "/EHsc", "/openmp", "/std:c++14", "/fp:precise",
               "/DDBEM_POLICY_TECPLOT_OUTPUT=0", f"/DDBEM_GMRES_CPU_VERIFY={int(args.verify)}", "/DDBEM_GMRES_CPU_TESTS=1",
-              "/I" + str(ROOT / "include"), "/I" + str(ROOT / "DBEM1")]
+              f"/DDBEM_WAVEFRONT_REUSE_PARTITIONS={args.reuse_partitions}",
+              "/I" + str(args.dependency_root / "include"), "/I" + str(ROOT / "DBEM1")]
     ns = {"m": "http://schemas.microsoft.com/developer/msbuild/2003"}
     tree = ET.parse(ROOT / "DBEM1/DBEM1.vcxproj")
     sources = [ROOT / "DBEM1" / x.attrib["Include"] for x in tree.findall(".//m:ClCompile[@Include]", ns)]
@@ -47,7 +51,7 @@ def main():
             print(result.stdout.decode("mbcs", errors="replace")[-16000:])
             raise SystemExit(result.returncode)
 
-    link = ["/link", "/LIBPATH:" + str(ROOT / "lib/x64"), "pthreadVC2.lib", "/STACK:52428800"]
+    link = ["/link", "/LIBPATH:" + str(args.dependency_root / "lib/x64"), "pthreadVC2.lib", "/STACK:52428800"]
     run("solver_build", common + [str(p) for p in sources] + ["/Fe:DBEM1_openmp.exe"] + link)
     run("test_globals_build", common + ["/Dmain=dbem_production_entry", "/c", str(ROOT / "DBEM1/DBEM.cpp"), "/Fo:test_globals.obj"])
     objects = [p.stem + ".obj" for p in sources if p.stem.lower() != "dbem"] + ["test_globals.obj"]
@@ -56,9 +60,11 @@ def main():
         run("rhs_test_build", common + [str(ROOT / "tests/rhs_parallel_test.cpp")] + objects + ["/Fe:rhs_parallel_test.exe"] + link)
     if args.wavefront_tests:
         run("wavefront_test_build", common + [str(ROOT / "tests/wavefront_quadrature_test.cpp")] + objects + ["/Fe:wavefront_quadrature_test.exe"] + link)
+    if args.reuse_tests:
+        run("reuse_test_build", common + [str(ROOT / "tests/wavefront_reuse_test.cpp")] + objects + ["/Fe:wavefront_reuse_test.exe"] + link)
     for name in ["gaussposition", "gaussweight"]:
         shutil.copy2(ROOT / "DBEM1" / name, out / name)
-    dll = ROOT / "lib/x64/pthreadVC2.dll"
+    dll = args.dependency_root / "lib/x64/pthreadVC2.dll"
     if dll.exists():
         shutil.copy2(dll, out / dll.name)
     hashes = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in out.glob("*.exe")}

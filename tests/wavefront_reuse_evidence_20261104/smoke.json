@@ -1,0 +1,89 @@
+{
+  "records": [
+    {
+      "case": "md1",
+      "mode": "off",
+      "threads": 1,
+      "rows": 24,
+      "returncode": 1
+    },
+    {
+      "case": "md1",
+      "mode": "on",
+      "threads": 1,
+      "rows": 24,
+      "returncode": 1
+    },
+    {
+      "case": "md1",
+      "mode": "off",
+      "threads": 2,
+      "rows": 24,
+      "returncode": 1
+    },
+    {
+      "case": "md1",
+      "mode": "on",
+      "threads": 2,
+      "rows": 24,
+      "returncode": 1
+    },
+    {
+      "case": "md2_same",
+      "mode": "off",
+      "threads": 1,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_same",
+      "mode": "on",
+      "threads": 1,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_same",
+      "mode": "off",
+      "threads": 2,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_same",
+      "mode": "on",
+      "threads": 2,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_mixed",
+      "mode": "off",
+      "threads": 1,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_mixed",
+      "mode": "on",
+      "threads": 1,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_mixed",
+      "mode": "off",
+      "threads": 2,
+      "rows": 72,
+      "returncode": 1
+    },
+    {
+      "case": "md2_mixed",
+      "mode": "on",
+      "threads": 2,
+      "rows": 72,
+      "returncode": 1
+    }
+  ],
+  "all_states_exactly_equal": true
+}

@@ -17,6 +17,8 @@ struct Options {
 };
 struct Statistics {
  std::size_t evaluations=0, leaves=0, skipped=0;
+ std::size_t partitionBuilds=0, partitionCacheHits=0;
+ std::size_t boundsBuilds=0, boundsCacheHits=0;
  unsigned maxDepth=0; bool planar=false; double missedSupportError=0;
 };
 struct Result {

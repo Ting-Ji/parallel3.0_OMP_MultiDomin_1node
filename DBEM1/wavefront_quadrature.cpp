@@ -10,6 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+#include <cstring>
 
 namespace Wavefront {
 namespace {
@@ -139,6 +140,26 @@ Bounds bounds(const Geometry&g,const Vec&source,const Cell&c){
  lower=(std::max)(lower,(std::max)(0.,squaredLow-squaredPad));
  upper=(std::min)(upper,(std::max)(0.,squaredHigh+squaredPad));
  return {std::sqrt(lower),std::sqrt(upper),maxU*maxV*(1+128*eps),regular};
+}
+Bounds wholeBounds(const std::shared_ptr<const Geometry>&owner,const Vec&source,Statistics*stats=nullptr){
+#if DBEM_WAVEFRONT_REUSE_PARTITIONS
+ struct Entry{std::shared_ptr<const Geometry>geometry;Vec source{};Bounds value{};};
+ struct Cache{std::array<Entry,2>entries;unsigned next=0;};
+ static thread_local Cache cache;
+ for(const auto&entry:cache.entries){
+  if(entry.geometry&&entry.geometry.get()==owner.get()&&
+     std::memcmp(entry.source.data(),source.data(),sizeof(double)*3)==0){
+   if(stats)++stats->boundsCacheHits;return entry.value;
+  }
+ }
+#endif
+ Cell whole;whole.a=whole.c=-1;whole.b=whole.d=1;
+ auto value=bounds(*owner,source,whole);if(stats)++stats->boundsBuilds;
+#if DBEM_WAVEFRONT_REUSE_PARTITIONS
+ auto&entry=cache.entries[cache.next];entry.geometry=owner;entry.source=source;entry.value=value;
+ cache.next=(cache.next+1)%cache.entries.size();
+#endif
+ return value;
 }
 }
 namespace {
@@ -322,6 +343,7 @@ struct Context{
  std::vector<double> fronts,critical;
  std::array<std::array<double,2>,4> polygon{};
  bool planar;
+ const Bounds*rootBounds=nullptr;
  Context(DSquareElement&ee,Kernel k,long l,const DynaMat&m,const Options&o,const Geometry&gg,const Vec&s,Result&r)
  :e(ee),kind(k),lag(l),mat(m),opt(o),g(gg),source(s),result(r),planar(gg.planar){
   lowerTime=(k==Kernel::T2?l-1:l)*m.Dt;upperTime=lowerTime+m.Dt;
@@ -448,7 +470,11 @@ struct Context{
   result.statistics.maxDepth=(std::max)(result.statistics.maxDepth,c.depth);
   bool crossing=false;Bounds b{};
   if(!planar){
-   b=bounds(g,source,c);
+#if DBEM_WAVEFRONT_REUSE_PARTITIONS
+   if(rootBounds&&c.a==-1&&c.b==1&&c.c==-1&&c.d==1){b=*rootBounds;++result.statistics.boundsCacheHits;}
+   else
+#endif
+   {b=bounds(g,source,c);++result.statistics.boundsBuilds;}
    if(outside(b)){++result.statistics.skipped;return;}
    for(double front:fronts)if(b.low<front&&front<b.high)crossing=true;
   }
@@ -541,6 +567,46 @@ std::vector<Cell> planeCells(Context&ctx){
   }
  }return cells;
 }
+// A tiny per-worker cache covers the two adjacent physical windows used by
+// T1(n), T2(n), U(n). Retaining the immutable owner prevents pointer ABA when
+// an element is reinitialized or a standalone call builds temporary geometry.
+// No kernel values, adaptive leaves, errors, or material-dependent scales are
+// reused. A failed partition construction never installs an entry.
+struct PartitionPlan {
+ std::shared_ptr<const Geometry> geometry;
+ Vec source{};double cp=0,cs=0,lower=0,upper=0;
+ std::vector<double> fronts;
+ std::vector<Cell> seeds;
+ double gap=0,near=0;
+ std::array<std::array<double,2>,4> polygon{};
+};
+std::vector<Cell> reusablePlaneCells(Context&ctx,const std::shared_ptr<const Geometry>&owner){
+#if DBEM_WAVEFRONT_REUSE_PARTITIONS
+ struct Cache {std::array<PartitionPlan,2> plans;unsigned next=0;};
+ static thread_local Cache cache;
+ for(const auto&p:cache.plans){
+  if(p.geometry.get()==owner.get()&&p.geometry&&
+     std::memcmp(p.source.data(),ctx.source.data(),sizeof(double)*3)==0&&
+     p.cp==ctx.mat.C1&&p.cs==ctx.mat.C2&&p.lower==ctx.lowerTime&&p.upper==ctx.upperTime&&p.fronts==ctx.fronts){
+   ctx.signedGap=p.gap;ctx.nearDistance=p.near;ctx.polygon=p.polygon;
+   ++ctx.result.statistics.partitionCacheHits;
+   return p.seeds;
+  }
+ }
+#endif
+ auto seeds=planeCells(ctx);
+ ++ctx.result.statistics.partitionBuilds;
+#if DBEM_WAVEFRONT_REUSE_PARTITIONS
+ // Do not retain an unusually large near-singular partition in a worker.
+ if(seeds.size()<=4096){
+  PartitionPlan p;p.geometry=owner;p.source=ctx.source;p.cp=ctx.mat.C1;p.cs=ctx.mat.C2;
+  p.lower=ctx.lowerTime;p.upper=ctx.upperTime;p.fronts=ctx.fronts;p.seeds=seeds;
+  p.gap=ctx.signedGap;p.near=ctx.nearDistance;p.polygon=ctx.polygon;
+  cache.plans[cache.next]=std::move(p);cache.next=(cache.next+1)%cache.plans.size();
+ }
+#endif
+ return seeds;
+}
 } // namespace
 #if defined(DBEM_WAVEFRONT_CACHE_SELF_TEST) && DBEM_WAVEFRONT_CACHE_SELF_TEST
 // Validation-only constant-integrand check of the actual polar partition.
@@ -590,8 +656,7 @@ int Classify(DSquareElement&e,const Vec&source,long lag,bool second,const DynaMa
  for(double x:source)if(!std::isfinite(x))return 1;
  double low=(second?lag-1:lag)*mat.Dt;
  if(quicklyOutside(*geometry,source,mat.C2*low,mat.C1*(low+mat.Dt)))return 0;
- Cell cell;cell.a=cell.c=-1;cell.b=cell.d=1;
- auto b=bounds(*geometry,source,cell);
+ auto b=wholeBounds(e.m_wavefrontGeometry?e.m_wavefrontGeometry:localGeometry,source);
  return b.high<mat.C2*low||b.low>=mat.C1*(low+mat.Dt)?0:1;
 }
 Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const DynaMat&material,const Options&opt){
@@ -616,8 +681,8 @@ Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const Dy
   }
   MatScope scope(material);
   Context ctx(e,kind,lag,material,opt,*geometry,source,result);
-  Cell whole;whole.a=whole.c=-1;whole.b=whole.d=1;
-  Bounds all=bounds(*geometry,source,whole);
+  Bounds all=wholeBounds(e.m_wavefrontGeometry?e.m_wavefrontGeometry:localGeometry,source,&result.statistics);
+  ctx.rootBounds=&all;
   if(ctx.outside(all)){result.status=Status::Outside;return result;}
   result.characteristicScale=ctx.characteristicScale(all);
   if(!(result.characteristicScale>0)||!std::isfinite(result.characteristicScale))
@@ -627,7 +692,7 @@ Result Integrate(DSquareElement&e,Kernel kind,const Vec&source,long lag,const Dy
   std::vector<Cell> seeds;
   bool anyFront=false;
   for(double front:ctx.fronts)if(all.low<front&&front<all.high)anyFront=true;
-  if(geometry->planar&&anyFront)seeds=planeCells(ctx);
+  if(geometry->planar&&anyFront)seeds=reusablePlaneCells(ctx,e.m_wavefrontGeometry?e.m_wavefrontGeometry:localGeometry);
   else{
    ctx.planar=false;
    unsigned count=geometry->planar?1:NUMPW;

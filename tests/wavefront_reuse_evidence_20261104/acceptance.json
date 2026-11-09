@@ -1,0 +1,34 @@
+{
+  "status": "PASS",
+  "source_matches_final_builds": true,
+  "only_build_switch_differs": true,
+  "full_runs": 10,
+  "smoke_runs": 12,
+  "reference_cases": 210,
+  "kernel_and_adaptivity_bytes_equal": true,
+  "all_full_state_bytes_equal": true,
+  "full_run_residuals_pass": true,
+  "all_source_and_input_and_exe_hashes_pass": true,
+  "timing": {
+    "small82": {
+      "median_solve_seconds": {
+        "off": 9.6379339,
+        "on": 9.4318514
+      },
+      "speedup": 1.0218496338905425,
+      "identical_state_bytes": true
+    },
+    "medium328": {
+      "median_solve_seconds": {
+        "off": 134.1010078,
+        "on": 133.8408715
+      },
+      "speedup": 1.0019436237756416,
+      "identical_state_bytes": true
+    }
+  },
+  "reuse_counters": {
+    "off": "PASS cases=210 builds=2100 hits=0 boundsBuilds=4465 boundsHits=0",
+    "on": "PASS cases=210 builds=861 hits=1239 boundsBuilds=2374 boundsHits=2091"
+  }
+}
